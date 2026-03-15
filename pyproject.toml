@@ -1,0 +1,12 @@
+[project]
+name = "kiro-claw"
+version = "0.1.0"
+description = "Telegram ↔ JARVIS bridge with container isolation"
+requires-python = ">=3.11"
+dependencies = [
+    "python-telegram-bot[ext]>=21.0",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+kiro-claw = "src.main:main"
