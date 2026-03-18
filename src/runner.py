@@ -52,7 +52,7 @@ async def _ensure_container():
 
     if _BRAIN_DIR and _BRAIN_DIR.exists():
         cmd.insert(-1, "-v")
-        cmd.insert(-1, f"{_BRAIN_DIR}:/workspace/brain:ro")
+        cmd.insert(-1, f"{_BRAIN_DIR}:/workspace/brain:rw")
 
     _proc = await asyncio.create_subprocess_exec(
         *cmd,
