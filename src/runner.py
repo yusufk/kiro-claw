@@ -6,7 +6,7 @@ import logging
 import re
 from pathlib import Path
 
-from .config import CONTAINER_IMAGE, CONTAINER_TIMEOUT, KIRO_AGENT, BRAIN_DIR
+from .config import CONTAINER_IMAGE, CONTAINER_TIMEOUT, KIRO_AGENT, BRAIN_DIR, EXTRA_HOSTS
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +53,12 @@ async def _ensure_container():
     if _BRAIN_DIR and _BRAIN_DIR.exists():
         cmd.insert(-1, "-v")
         cmd.insert(-1, f"{_BRAIN_DIR}:/workspace/brain:rw")
+
+    for entry in EXTRA_HOSTS.split(","):
+        entry = entry.strip()
+        if entry:
+            cmd.insert(-1, "--add-host")
+            cmd.insert(-1, entry)
 
     _proc = await asyncio.create_subprocess_exec(
         *cmd,
