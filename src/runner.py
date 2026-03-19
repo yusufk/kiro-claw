@@ -6,7 +6,7 @@ import logging
 import re
 from pathlib import Path
 
-from .config import CONTAINER_IMAGE, CONTAINER_TIMEOUT, KIRO_AGENT, BRAIN_DIR, EXTRA_HOSTS
+from .config import CONTAINER_IMAGE, CONTAINER_TIMEOUT, KIRO_AGENT, BRAIN_DIR, EXTRA_HOSTS, MCP_SECRETS
 
 log = logging.getLogger(__name__)
 
@@ -14,21 +14,30 @@ OUTPUT_START = "---KIROCLAW_OUTPUT_START---"
 OUTPUT_END = "---KIROCLAW_OUTPUT_END---"
 CONTAINER_NAME = "kiroclaw-agent"
 
-KIRO_CONFIG = Path.home() / ".kiro"
+_PROJECT_DIR = Path(__file__).parent.parent
+_AGENT_CONFIG = _PROJECT_DIR / "data" / "agent.json"
 _BRAIN_DIR = Path(BRAIN_DIR) if BRAIN_DIR else None
 KIRO_DATA = Path.home() / "Library" / "Application Support" / "kiro-cli"
 
-_local_kiro_data = Path(__file__).parent.parent / "data" / "kiro-data"
+_local_kiro_data = _PROJECT_DIR / "data" / "kiro-data"
 if _local_kiro_data.exists():
     KIRO_DATA = _local_kiro_data
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
+# Build redaction patterns from MCP secrets at import time
+_REDACT_PATTERNS: list[re.Pattern] = []
+for _val in MCP_SECRETS.values():
+    if len(_val) >= 8:  # only redact non-trivial values
+        _REDACT_PATTERNS.append(re.compile(re.escape(_val)))
+
 
 def _clean(text: str) -> str:
-    """Strip ANSI codes, then remove kiro-cli's '> ' response prefix."""
+    """Strip ANSI codes, kiro-cli prefix, and any leaked secrets."""
     text = _ANSI_RE.sub("", text)
     text = re.sub(r"^> ", "", text, flags=re.MULTILINE)
+    for pat in _REDACT_PATTERNS:
+        text = pat.sub("[REDACTED]", text)
     return text.strip()
 _proc = None  # Persistent container process
 _lock = asyncio.Lock()
@@ -45,7 +54,7 @@ async def _ensure_container():
     cmd = [
         "docker", "run", "--rm", "-i",
         "--name", CONTAINER_NAME,
-        "-v", f"{KIRO_CONFIG}:/home/node/.kiro:rw",
+        "-v", f"{_AGENT_CONFIG}:/home/node/.kiro/agents/{KIRO_AGENT}.json:rw",
         "-v", f"{KIRO_DATA}:/home/node/.local/share/kiro-cli:rw",
         CONTAINER_IMAGE,
     ]
@@ -59,6 +68,10 @@ async def _ensure_container():
         if entry:
             cmd.insert(-1, "--add-host")
             cmd.insert(-1, entry)
+
+    for key, val in MCP_SECRETS.items():
+        cmd.insert(-1, "-e")
+        cmd.insert(-1, f"{key}={val}")
 
     _proc = await asyncio.create_subprocess_exec(
         *cmd,

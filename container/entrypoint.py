@@ -3,20 +3,18 @@
 
 import json
 import os
+import re
 import subprocess
 import sys
 
 OUTPUT_START = "---KIROCLAW_OUTPUT_START---"
 OUTPUT_END = "---KIROCLAW_OUTPUT_END---"
 
-# Map host paths to container paths in agent configs
-PATH_REWRITES = {
-    "/Users/": "/workspace/brain/",  # catch-all for Mac user paths pointing to brain content
-}
+_ENV_PLACEHOLDER = re.compile(r"__ENV:(\w+)__")
 
 
-def _patch_agent_paths():
-    """Rewrite host-specific paths in agent configs to container paths."""
+def _patch_agent_configs():
+    """Resolve __ENV:VAR__ placeholders in agent configs from container env vars."""
     agents_dir = os.path.expanduser("~/.kiro/agents")
     if not os.path.isdir(agents_dir):
         return
@@ -26,14 +24,7 @@ def _patch_agent_paths():
         fpath = os.path.join(agents_dir, fname)
         try:
             raw = open(fpath).read()
-            patched = raw
-            for server in json.loads(raw).get("mcpServers", {}).values():
-                for key, val in server.get("env", {}).items():
-                    if isinstance(val, str) and val.startswith("/Users/"):
-                        # Rewrite to brain mount if the file exists there
-                        basename = os.path.basename(val)
-                        container_path = f"/workspace/brain/{basename}"
-                        patched = patched.replace(val, container_path)
+            patched = _ENV_PLACEHOLDER.sub(lambda m: os.environ.get(m.group(1), ""), raw)
             if patched != raw:
                 open(fpath, "w").write(patched)
         except Exception:
@@ -68,7 +59,7 @@ def handle(data):
 
 
 def main():
-    _patch_agent_paths()
+    _patch_agent_configs()
     print("KIROCLAW_READY", flush=True)
     for line in sys.stdin:
         line = line.strip()
