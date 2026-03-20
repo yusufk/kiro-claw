@@ -47,15 +47,24 @@ def handle(data):
     cmd.append(prompt)
 
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=280)
-        response = proc.stdout.strip()
-        if proc.returncode != 0 and not response:
-            response = proc.stderr.strip() or f"kiro-cli exited {proc.returncode}"
-        write_output("success", result=response)
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        print(OUTPUT_START, flush=True)
+        for line in proc.stdout:
+            print(f"STREAM:{line.rstrip()}", flush=True)
+        proc.wait(timeout=280)
+        stderr = proc.stderr.read().strip()
+        if proc.returncode != 0 and stderr:
+            print(f"STREAM:{stderr}", flush=True)
+        print(OUTPUT_END, flush=True)
     except subprocess.TimeoutExpired:
-        write_output("error", error="kiro-cli timed out")
+        proc.kill()
+        print(OUTPUT_START, flush=True)
+        print("STREAM:kiro-cli timed out", flush=True)
+        print(OUTPUT_END, flush=True)
     except Exception as e:
-        write_output("error", error=str(e))
+        print(OUTPUT_START, flush=True)
+        print(f"STREAM:{e}", flush=True)
+        print(OUTPUT_END, flush=True)
 
 
 def main():

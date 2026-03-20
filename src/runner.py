@@ -88,8 +88,8 @@ async def _ensure_container():
             return
 
 
-async def run_in_container(prompt: str, chat_id: int) -> str:
-    """Send a message to the persistent container and read the response."""
+async def stream_from_container(prompt: str, chat_id: int):
+    """Async generator — yields cleaned lines as they stream from the container."""
     global _first_message
 
     async with _lock:
@@ -97,7 +97,8 @@ async def run_in_container(prompt: str, chat_id: int) -> str:
             await _ensure_container()
         except Exception as e:
             log.error("Failed to start container: %s", e)
-            return f"Container startup failed: {e}"
+            yield f"Container startup failed: {e}"
+            return
 
         payload = json.dumps({
             "prompt": prompt,
@@ -110,25 +111,35 @@ async def run_in_container(prompt: str, chat_id: int) -> str:
             _proc.stdin.write((payload + "\n").encode())
             await _proc.stdin.drain()
 
-            return await asyncio.wait_for(
-                _read_response(), timeout=CONTAINER_TIMEOUT
-            )
+            async for line in _read_stream():
+                yield line
         except asyncio.TimeoutError:
             log.warning("Response timed out, killing container")
             await _kill_container()
-            return "I'm terribly sorry, Sir — I ran out of time processing that request."
+            yield "I'm terribly sorry, Sir — I ran out of time processing that request."
         except Exception as e:
             log.error("Container error: %s", e)
             await _kill_container()
-            return f"Container error: {e}"
+            yield f"Container error: {e}"
 
 
-async def _read_response() -> str:
-    """Read stdout until we get a complete output block."""
-    buf = []
+async def run_in_container(prompt: str, chat_id: int) -> str:
+    """Non-streaming wrapper — collects all lines into one response."""
+    lines = []
+    async for line in stream_from_container(prompt, chat_id):
+        lines.append(line)
+    return "\n".join(lines) or "No response from container."
+
+
+async def _read_stream():
+    """Yield cleaned lines as they arrive between output markers."""
     capturing = False
+    deadline = asyncio.get_event_loop().time() + CONTAINER_TIMEOUT
     while True:
-        line = await _proc.stdout.readline()
+        remaining = deadline - asyncio.get_event_loop().time()
+        if remaining <= 0:
+            raise asyncio.TimeoutError()
+        line = await asyncio.wait_for(_proc.stdout.readline(), timeout=remaining)
         if not line:
             break
         text = line.decode(errors="replace").rstrip()
@@ -136,16 +147,11 @@ async def _read_response() -> str:
             capturing = True
             continue
         if OUTPUT_END in text:
-            raw = "\n".join(buf)
-            try:
-                data = json.loads(raw)
-                result = data.get("result") or data.get("error") or raw
-            except json.JSONDecodeError:
-                result = raw
-            return _clean(result)
-        if capturing:
-            buf.append(text)
-    return _clean("\n".join(buf)) or "No response from container."
+            return
+        if capturing and text.startswith("STREAM:"):
+            cleaned = _clean(text[7:])
+            if cleaned:
+                yield cleaned
 
 
 async def _kill_container():
