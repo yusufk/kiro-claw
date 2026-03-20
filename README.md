@@ -74,7 +74,6 @@ EXTRA_HOSTS=<hostname:ip,hostname:ip>
 # MCP secrets — injected as env vars into container
 MCP_HOME_ASSISTANT_API_ACCESS_TOKEN=<your-ha-token>
 MCP_MCP_OBSIDIAN_OBSIDIAN_API_KEY=<your-obsidian-key>
-MCP_WORDPRESS_MASJID_WP_API_PASSWORD=<your-wp-password>
 ```
 
 To find your chat ID, start the bot and send `/chatid`.
