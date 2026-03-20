@@ -3,7 +3,9 @@
 import asyncio
 import json
 import logging
+import os
 import re
+import tempfile
 from pathlib import Path
 
 from .config import CONTAINER_IMAGE, CONTAINER_TIMEOUT, KIRO_AGENT, BRAIN_DIR, EXTRA_HOSTS, MCP_SECRETS
@@ -39,14 +41,25 @@ def _clean(text: str) -> str:
     for pat in _REDACT_PATTERNS:
         text = pat.sub("[REDACTED]", text)
     return text.strip()
+
+
 _proc = None  # Persistent container process
 _lock = asyncio.Lock()
 _first_message = True
+_env_path = None  # Temp env file for secrets
+
+
+def _cleanup_env():
+    """Remove the temporary env file if it exists."""
+    global _env_path
+    if _env_path and os.path.exists(_env_path):
+        os.unlink(_env_path)
+        _env_path = None
 
 
 async def _ensure_container():
     """Start the persistent container if not already running."""
-    global _proc
+    global _proc, _env_path
     if _proc and _proc.returncode is None:
         return
 
@@ -69,9 +82,14 @@ async def _ensure_container():
             cmd.insert(-1, "--add-host")
             cmd.insert(-1, entry)
 
-    for key, val in MCP_SECRETS.items():
-        cmd.insert(-1, "-e")
-        cmd.insert(-1, f"{key}={val}")
+    # Write secrets to temp file instead of -e flags (hides from ps aux)
+    env_fd, _env_path = tempfile.mkstemp(prefix="kiroclaw-", suffix=".env")
+    with os.fdopen(env_fd, "w") as f:
+        for key, val in MCP_SECRETS.items():
+            f.write(f"{key}={val}\n")
+    os.chmod(_env_path, 0o600)
+    cmd.insert(-1, "--env-file")
+    cmd.insert(-1, _env_path)
 
     _proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -80,11 +98,12 @@ async def _ensure_container():
         stderr=asyncio.subprocess.PIPE,
     )
 
-    # Wait for READY signal
+    # Wait for READY signal, then clean up env file
     while True:
         line = await asyncio.wait_for(_proc.stdout.readline(), timeout=30)
         if b"KIROCLAW_READY" in line:
             log.info("Container ready")
+            _cleanup_env()
             return
 
 
@@ -157,6 +176,7 @@ async def _read_stream():
 async def _kill_container():
     global _proc, _first_message
     _first_message = True
+    _cleanup_env()
     try:
         p = await asyncio.create_subprocess_exec(
             "docker", "kill", CONTAINER_NAME,
