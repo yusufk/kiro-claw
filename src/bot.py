@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import re
+import time
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -14,10 +15,12 @@ from telegram.ext import (
 
 from .config import TELEGRAM_BOT_TOKEN, TRIGGER_PATTERN, ALLOWED_CHAT_IDS
 from .queue import ChatQueue
+from .runner import stream_from_container
 
 log = logging.getLogger(__name__)
 
 TG_MAX_MSG = 4096
+DRAFT_INTERVAL = 1.0  # min seconds between draft updates
 
 
 def _split_message(text: str) -> list[str]:
@@ -71,18 +74,25 @@ def create_bot(queue: ChatQueue) -> Application:
 
         log.info("Processing message from %s in chat %s", sender, chat_id)
 
-        async def typing_loop():
-            while True:
-                await msg.chat.send_action("typing")
-                await asyncio.sleep(4)
+        draft_id = int(time.time() * 1000) % (2**31 - 1) or 1
+        accumulated = ""
+        last_draft = 0.0
 
-        typing_task = asyncio.create_task(typing_loop())
-        try:
-            response = await queue.submit(full_prompt, chat_id)
-        finally:
-            typing_task.cancel()
+        async for line in stream_from_container(full_prompt, chat_id):
+            accumulated = (accumulated + "\n" + line).strip() if accumulated else line
+            now = time.monotonic()
+            if is_private and now - last_draft >= DRAFT_INTERVAL:
+                try:
+                    draft_text = accumulated[-TG_MAX_MSG:]  # keep within limit
+                    await ctx.bot.send_message_draft(chat_id, draft_id, draft_text)
+                    last_draft = now
+                except Exception as e:
+                    log.debug("Draft send failed: %s", e)
 
-        for chunk in _split_message(response):
+        if not accumulated:
+            accumulated = "No response from container."
+
+        for chunk in _split_message(accumulated):
             await msg.reply_text(chunk)
 
     app.add_handler(CommandHandler("ping", cmd_ping))
