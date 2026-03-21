@@ -30,7 +30,17 @@ def schedule_task(chat_id: int, prompt: str, schedule_type: str, schedule_value:
     """Create a scheduled task. Returns task ID."""
     task_id = f"task-{uuid.uuid4().hex[:8]}"
     if schedule_type == "once":
-        next_run = schedule_value  # ISO timestamp
+        # Validate it's a real timestamp, not a bare number
+        try:
+            datetime.fromisoformat(schedule_value)
+            next_run = schedule_value
+        except (ValueError, TypeError):
+            # Treat bare numbers as minutes
+            try:
+                minutes = int(schedule_value)
+                next_run = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
+            except ValueError:
+                next_run = schedule_value
     else:
         next_run = _next_run(schedule_type, schedule_value)
 
