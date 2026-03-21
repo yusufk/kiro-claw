@@ -58,27 +58,20 @@ Logs: `data/kiro-claw.log` | PID: `data/kiro-claw.pid`
 |---------|-------------|
 | `/ping` | Health check |
 | `/chatid` | Show current chat ID |
-| `/remind <time> <prompt>` | Schedule a task (see below) |
 | `/tasks` | List active scheduled tasks |
 | `/cancel <task_id>` | Cancel a scheduled task |
 | Any message (private chat) | Forwarded to JARVIS agent |
 | `@jarvis <message>` (group) | Trigger prefix for group chats |
 
-### /remind formats
-
-```
-/remind 30m Check the server          # repeating interval
-/remind 2h Water the plants           # repeating interval
-/remind 15 Quick reminder             # one-shot in 15 minutes
-/remind 2026-03-22T10:00 Meeting      # one-shot at specific time
-/remind cron 0 9 * * * Daily report   # cron schedule
-```
-
 ## Task Scheduling
 
-Tasks are stored in SQLite (`data/tasks.db`) and polled every 30 seconds. When a task fires, its prompt is run through the kiro-cli container and the result is sent to the originating Telegram chat.
+Scheduling is handled entirely by the AI agent — no rigid command syntax needed. Just talk naturally:
 
-Schedule types: `cron`, `interval` (milliseconds), `once` (ISO timestamp).
+- "wake me up in 10 minutes"
+- "remind me to check the server every hour"
+- "every morning at 9am give me a briefing"
+
+JARVIS understands the intent, computes the time, and calls the `jarvis-schedule` IPC tool. Tasks are stored in SQLite (`data/tasks.db`) and polled every 30 seconds. Use `/tasks` to see what's scheduled and `/cancel` to remove one.
 
 ## Proactive Messaging (Container → Telegram)
 
