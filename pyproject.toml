@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "python-telegram-bot[ext]>=21.0",
     "python-dotenv>=1.0",
+    "croniter>=2.0",
 ]
 
 [project.scripts]

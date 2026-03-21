@@ -76,6 +76,12 @@ async def _ensure_container():
         cmd.insert(-1, "-v")
         cmd.insert(-1, f"{_BRAIN_DIR}:/workspace/brain:rw")
 
+    # Mount IPC directory for proactive messaging and task scheduling
+    _ipc_dir = _PROJECT_DIR / "data" / "ipc"
+    _ipc_dir.mkdir(parents=True, exist_ok=True)
+    cmd.insert(-1, "-v")
+    cmd.insert(-1, f"{_ipc_dir}:/workspace/ipc:rw")
+
     for entry in EXTRA_HOSTS.split(","):
         entry = entry.strip()
         if entry:
