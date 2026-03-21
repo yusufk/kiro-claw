@@ -4,7 +4,6 @@ import asyncio
 import logging
 import re
 import time
-from datetime import datetime, timezone, timedelta
 
 from telegram import Update
 from telegram.ext import (
@@ -18,7 +17,6 @@ from telegram.ext import (
 from .config import TELEGRAM_BOT_TOKEN, TRIGGER_PATTERN, ALLOWED_CHAT_IDS
 from .queue import ChatQueue
 from .runner import stream_from_container
-from .scheduler import schedule_task
 from .db import get_tasks_for_chat, delete_task
 
 log = logging.getLogger(__name__)
@@ -50,44 +48,6 @@ def _should_respond(text: str, is_private: bool) -> str | None:
     return match.group(1).strip() if match else None
 
 
-def _parse_remind(text: str) -> tuple[str, str, str] | None:
-    """Parse /remind command. Returns (prompt, schedule_type, schedule_value) or None.
-
-    Formats:
-      /remind 30m Check the server         -> interval, 1800000
-      /remind 2h Water the plants           -> interval, 7200000
-      /remind 2026-03-22T10:00 Do the thing -> once, ISO timestamp
-      /remind cron 0 9 * * * Morning report -> cron, expression
-    """
-    text = text.strip()
-
-    # Cron: /remind cron <expr> <prompt>
-    m = re.match(r"cron\s+((?:\S+\s+){4}\S+)\s+(.+)", text, re.DOTALL)
-    if m:
-        return m.group(2).strip(), "cron", m.group(1).strip()
-
-    # Interval: /remind 30m|2h|90s <prompt>
-    m = re.match(r"(\d+)([smhd])\s+(.+)", text, re.DOTALL)
-    if m:
-        val, unit, prompt = int(m.group(1)), m.group(2), m.group(3).strip()
-        ms = val * {"s": 1000, "m": 60000, "h": 3600000, "d": 86400000}[unit]
-        return prompt, "interval", str(ms)
-
-    # Once: /remind <ISO datetime> <prompt>
-    m = re.match(r"(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?)\s+(.+)", text, re.DOTALL)
-    if m:
-        return m.group(2).strip(), "once", m.group(1).replace(" ", "T")
-
-    # Simple delay: /remind <minutes> <prompt>  (bare number = minutes)
-    m = re.match(r"(\d+)\s+(.+)", text, re.DOTALL)
-    if m:
-        minutes = int(m.group(1))
-        when = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
-        return m.group(2).strip(), "once", when
-
-    return None
-
-
 def create_bot(queue: ChatQueue) -> Application:
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
@@ -96,32 +56,6 @@ def create_bot(queue: ChatQueue) -> Application:
 
     async def cmd_chatid(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Chat ID: `{update.effective_chat.id}`", parse_mode="Markdown")
-
-    async def cmd_remind(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-        """Schedule a task: /remind 30m Check the server"""
-        if not _is_allowed(update.effective_chat.id):
-            return
-        text = update.message.text.partition(" ")[2].strip()
-        if not text:
-            await update.message.reply_text(
-                "Usage:\n"
-                "  /remind 30m Check server\n"
-                "  /remind 2h Water plants\n"
-                "  /remind 2026-03-22T10:00 Meeting\n"
-                "  /remind cron 0 9 * * * Daily report\n"
-                "  /remind 15 Quick reminder (minutes)"
-            )
-            return
-
-        parsed = _parse_remind(text)
-        if not parsed:
-            await update.message.reply_text("Couldn't parse that. Try: /remind 30m Do something")
-            return
-
-        prompt, stype, svalue = parsed
-        task_id = schedule_task(update.effective_chat.id, prompt, stype, svalue)
-        label = {"cron": f"cron `{svalue}`", "interval": f"every {text.split()[0]}", "once": f"at {svalue}"}
-        await update.message.reply_text(f"✅ Scheduled ({label.get(stype, stype)})\nTask: `{task_id}`\nPrompt: {prompt}", parse_mode="Markdown")
 
     async def cmd_tasks(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         """List active tasks: /tasks"""
@@ -191,7 +125,6 @@ def create_bot(queue: ChatQueue) -> Application:
 
     app.add_handler(CommandHandler("ping", cmd_ping))
     app.add_handler(CommandHandler("chatid", cmd_chatid))
-    app.add_handler(CommandHandler("remind", cmd_remind))
     app.add_handler(CommandHandler("tasks", cmd_tasks))
     app.add_handler(CommandHandler("cancel", cmd_cancel))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
