@@ -129,6 +129,7 @@ async def stream_from_container(prompt: str, chat_id: int):
             "prompt": prompt,
             "agent": KIRO_AGENT,
             "resume": not _first_message,
+            "chat_id": chat_id,
         })
         _first_message = False
 

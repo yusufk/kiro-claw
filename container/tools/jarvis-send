@@ -1,0 +1,19 @@
+#!/bin/sh
+# Send a proactive message to a Telegram chat via IPC.
+# Usage: jarvis-send <chat_id> <message>
+# The host bot polls /workspace/ipc/ and delivers the message.
+
+CHAT_ID="${1:?Usage: jarvis-send <chat_id> <message>}"
+shift
+TEXT="$*"
+[ -z "$TEXT" ] && { echo "Error: message text required"; exit 1; }
+
+IPC_DIR="/workspace/ipc"
+mkdir -p "$IPC_DIR"
+
+FILENAME="msg-$(date +%s%N).json"
+cat > "$IPC_DIR/$FILENAME" <<EOF
+{"type": "message", "chat_id": $CHAT_ID, "text": $(printf '%s' "$TEXT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}
+EOF
+
+echo "Message queued: $FILENAME"

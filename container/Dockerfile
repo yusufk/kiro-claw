@@ -21,8 +21,11 @@ RUN uv tool install mcp-proxy \
 RUN npx -y @playwright/mcp@latest --help 2>/dev/null || true
 
 # Create workspace dirs
-RUN mkdir -p /workspace/brain /workspace/scratch /home/node/.kiro \
+RUN mkdir -p /workspace/brain /workspace/scratch /workspace/ipc /home/node/.kiro \
     && chown -R node:node /workspace /home/node /opt/uv-tools
+
+# Install IPC tools (proactive messaging + task scheduling)
+COPY --chown=node:node tools/ /usr/local/bin/
 
 USER node
 WORKDIR /workspace

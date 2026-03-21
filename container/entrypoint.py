@@ -40,6 +40,11 @@ def handle(data):
     prompt = data.get("prompt", "")
     agent = data.get("agent", "JARVIS")
     resume = data.get("resume", False)
+    chat_id = data.get("chat_id", "")
+
+    # Expose chat_id so IPC tools can reference it
+    if chat_id:
+        os.environ["JARVIS_CHAT_ID"] = str(chat_id)
 
     cmd = ["kiro-cli", "chat", "--agent", agent, "--no-interactive", "--trust-all-tools"]
     if resume:

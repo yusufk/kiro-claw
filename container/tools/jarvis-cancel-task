@@ -1,0 +1,15 @@
+#!/bin/sh
+# Cancel a scheduled task via IPC.
+# Usage: jarvis-cancel-task <task_id>
+
+TASK_ID="${1:?Usage: jarvis-cancel-task <task_id>}"
+
+IPC_DIR="/workspace/ipc"
+mkdir -p "$IPC_DIR"
+
+FILENAME="cancel-$(date +%s%N).json"
+cat > "$IPC_DIR/$FILENAME" <<EOF
+{"type": "cancel_task", "task_id": "$TASK_ID"}
+EOF
+
+echo "Task cancellation queued: $TASK_ID"
