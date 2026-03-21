@@ -1,0 +1,26 @@
+#!/bin/sh
+# Schedule a task via IPC.
+# Usage: jarvis-schedule <chat_id> <type> <value> <prompt>
+#   type: cron | interval | once
+#   value: cron expression | milliseconds | ISO datetime
+# Examples:
+#   jarvis-schedule 72911340 cron "0 9 * * *" "Good morning check-in"
+#   jarvis-schedule 72911340 interval 3600000 "Hourly system check"
+#   jarvis-schedule 72911340 once "2026-03-22T10:00" "Remind about meeting"
+
+CHAT_ID="${1:?Usage: jarvis-schedule <chat_id> <type> <value> <prompt>}"
+STYPE="${2:?Schedule type required: cron|interval|once}"
+SVALUE="${3:?Schedule value required}"
+shift 3
+PROMPT="$*"
+[ -z "$PROMPT" ] && { echo "Error: prompt required"; exit 1; }
+
+IPC_DIR="/workspace/ipc"
+mkdir -p "$IPC_DIR"
+
+FILENAME="task-$(date +%s%N).json"
+cat > "$IPC_DIR/$FILENAME" <<EOF
+{"type": "schedule_task", "chat_id": $CHAT_ID, "schedule_type": "$STYPE", "schedule_value": "$SVALUE", "prompt": $(printf '%s' "$PROMPT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}
+EOF
+
+echo "Task scheduled: $FILENAME"
