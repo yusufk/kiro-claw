@@ -102,6 +102,18 @@ def create_bot(queue: ChatQueue) -> Application:
 
         log.info("Processing message from %s in chat %s", sender, chat_id)
 
+        # Send typing indicator while container spins up and processes
+        typing_active = True
+        async def _typing_loop():
+            while typing_active:
+                try:
+                    await ctx.bot.send_chat_action(chat_id, "typing")
+                except Exception:
+                    pass
+                await asyncio.sleep(4)
+
+        typing_task = asyncio.create_task(_typing_loop())
+
         draft_id = int(time.time() * 1000) % (2**31 - 1) or 1
         accumulated = ""
         last_draft = 0.0
@@ -111,11 +123,14 @@ def create_bot(queue: ChatQueue) -> Application:
             now = time.monotonic()
             if is_private and now - last_draft >= DRAFT_INTERVAL:
                 try:
-                    draft_text = accumulated[-TG_MAX_MSG:]  # keep within limit
+                    draft_text = accumulated[-TG_MAX_MSG:]
                     await ctx.bot.send_message_draft(chat_id, draft_id, draft_text)
                     last_draft = now
                 except Exception as e:
                     log.debug("Draft send failed: %s", e)
+
+        typing_active = False
+        typing_task.cancel()
 
         if not accumulated:
             accumulated = "No response from container."
