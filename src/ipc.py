@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from pathlib import Path
 
 from .config import ALLOWED_CHAT_IDS
@@ -78,6 +79,9 @@ async def ipc_loop(send_fn):
     while True:
         try:
             for f in sorted(IPC_DIR.glob("*.json")):
+                # Skip files still being written (modified < 1s ago)
+                if time.time() - f.stat().st_mtime < 1:
+                    continue
                 await _process_file(f, send_fn)
         except Exception as e:
             log.error("IPC watcher error: %s", e)
