@@ -136,7 +136,10 @@ def create_bot(queue: ChatQueue) -> Application:
             accumulated = "No response from container."
 
         for chunk in _split_message(accumulated):
-            await msg.reply_text(chunk, parse_mode="Markdown")
+            try:
+                await msg.reply_text(chunk, parse_mode="Markdown")
+            except Exception:
+                await msg.reply_text(chunk)
 
     app.add_handler(CommandHandler("ping", cmd_ping))
     app.add_handler(CommandHandler("chatid", cmd_chatid))
