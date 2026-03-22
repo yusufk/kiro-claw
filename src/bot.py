@@ -124,7 +124,7 @@ def create_bot(queue: ChatQueue) -> Application:
             if is_private and now - last_draft >= DRAFT_INTERVAL:
                 try:
                     draft_text = accumulated[-TG_MAX_MSG:]
-                    await ctx.bot.send_message_draft(chat_id, draft_id, draft_text)
+                    await ctx.bot.send_message_draft(chat_id, draft_id, draft_text, parse_mode="Markdown")
                     last_draft = now
                 except Exception as e:
                     log.debug("Draft send failed: %s", e)
@@ -136,7 +136,7 @@ def create_bot(queue: ChatQueue) -> Application:
             accumulated = "No response from container."
 
         for chunk in _split_message(accumulated):
-            await msg.reply_text(chunk)
+            await msg.reply_text(chunk, parse_mode="Markdown")
 
     app.add_handler(CommandHandler("ping", cmd_ping))
     app.add_handler(CommandHandler("chatid", cmd_chatid))
