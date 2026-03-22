@@ -28,10 +28,10 @@ def main():
         async def send_fn(chat_id: int, text: str):
             MAX = 4096
             if len(text) <= MAX:
-                await bot.send_message(chat_id, text)
+                await bot.send_message(chat_id, text, parse_mode="Markdown")
             else:
                 for i in range(0, len(text), MAX):
-                    await bot.send_message(chat_id, text[i:i + MAX])
+                    await bot.send_message(chat_id, text[i:i + MAX], parse_mode="Markdown")
 
         asyncio.create_task(scheduler_loop(send_fn))
         asyncio.create_task(ipc_loop(send_fn))
