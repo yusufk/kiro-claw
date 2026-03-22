@@ -16,13 +16,22 @@ log = logging.getLogger(__name__)
 POLL_INTERVAL = 30  # seconds
 
 
+def _to_sqlite_utc(ts: str) -> str:
+    """Normalize any ISO timestamp to SQLite-compatible 'YYYY-MM-DD HH:MM:SS' UTC."""
+    ts = ts.strip().replace("Z", "+00:00")
+    dt = datetime.fromisoformat(ts)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
 def _next_run(schedule_type: str, schedule_value: str) -> str | None:
     now = datetime.now(timezone.utc)
     if schedule_type == "cron":
-        return croniter(schedule_value, now).get_next(datetime).isoformat()
+        return croniter(schedule_value, now).get_next(datetime).strftime("%Y-%m-%d %H:%M:%S")
     elif schedule_type == "interval":
         ms = int(schedule_value)
-        return (now + timedelta(milliseconds=ms)).isoformat()
+        return (now + timedelta(milliseconds=ms)).strftime("%Y-%m-%d %H:%M:%S")
     return None  # 'once' — no next run
 
 
@@ -32,13 +41,12 @@ def schedule_task(chat_id: int, prompt: str, schedule_type: str, schedule_value:
     if schedule_type == "once":
         # Validate it's a real timestamp, not a bare number
         try:
-            datetime.fromisoformat(schedule_value)
-            next_run = schedule_value
+            next_run = _to_sqlite_utc(schedule_value)
         except (ValueError, TypeError):
             # Treat bare numbers as minutes
             try:
                 minutes = int(schedule_value)
-                next_run = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
+                next_run = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).strftime("%Y-%m-%d %H:%M:%S")
             except ValueError:
                 next_run = schedule_value
     else:
