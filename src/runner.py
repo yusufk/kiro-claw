@@ -8,7 +8,7 @@ import re
 import tempfile
 from pathlib import Path
 
-from .config import CONTAINER_IMAGE, CONTAINER_TIMEOUT, KIRO_AGENT, BRAIN_DIR, EXTRA_HOSTS, MCP_SECRETS
+from .config import CONTAINER_IMAGE, CONTAINER_TIMEOUT, KIRO_AGENT, BRAIN_DIR, EXTRA_HOSTS, MCP_SECRETS, PROJECTS
 
 log = logging.getLogger(__name__)
 
@@ -87,6 +87,15 @@ async def _ensure_container():
         if entry:
             cmd.insert(-1, "--add-host")
             cmd.insert(-1, entry)
+
+    # Mount project directories (read-write)
+    for proj in PROJECTS.split(","):
+        proj = proj.strip()
+        if proj and Path(proj).exists():
+            name = Path(proj).name
+            cmd.insert(-1, "-v")
+            cmd.insert(-1, f"{proj}:/workspace/projects/{name}:rw")
+            log.info("Mounting project: %s -> /workspace/projects/%s", proj, name)
 
     # Write secrets to temp file instead of -e flags (hides from ps aux)
     env_fd, _env_path = tempfile.mkstemp(prefix="kiroclaw-", suffix=".env")
