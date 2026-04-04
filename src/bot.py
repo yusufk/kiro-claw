@@ -83,6 +83,9 @@ def create_bot(queue: ChatQueue) -> Application:
         else:
             await update.message.reply_text(f"Task `{task_id}` not found.", parse_mode="Markdown")
 
+    # User ID for the owner (only respond to this user in groups)
+    OWNER_ID = 72911340
+
     async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         msg = update.message
         if not msg or not msg.text:
@@ -90,9 +93,20 @@ def create_bot(queue: ChatQueue) -> Application:
 
         chat_id = msg.chat_id
         if not _is_allowed(chat_id):
+            log.info("Rejected message from chat %s", chat_id)
             return
 
         is_private = msg.chat.type == "private"
+        is_group = msg.chat.type in ("group", "supergroup")
+
+        # In groups: observe all messages, only respond to owner
+        if is_group:
+            sender_name = msg.from_user.first_name if msg.from_user else "Unknown"
+            sender_id = msg.from_user.id if msg.from_user else 0
+            if sender_id != OWNER_ID:
+                log.info("[GROUP OBSERVE] %s: %s", sender_name, msg.text[:100])
+                return
+
         prompt = _should_respond(msg.text, is_private)
         if not prompt:
             return
