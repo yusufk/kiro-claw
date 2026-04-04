@@ -88,7 +88,7 @@ def create_bot(queue: ChatQueue) -> Application:
 
     async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         msg = update.message
-        if not msg or not msg.text:
+        if not msg:
             return
 
         chat_id = msg.chat_id
@@ -98,16 +98,20 @@ def create_bot(queue: ChatQueue) -> Application:
 
         is_private = msg.chat.type == "private"
         is_group = msg.chat.type in ("group", "supergroup")
+        text = msg.text or msg.caption or ""
 
         # In groups: observe all messages, only respond to owner
         if is_group:
             sender_name = msg.from_user.first_name if msg.from_user else "Unknown"
             sender_id = msg.from_user.id if msg.from_user else 0
             if sender_id != OWNER_ID:
-                log.info("[GROUP OBSERVE] %s: %s", sender_name, msg.text[:100])
+                log.info("[GROUP OBSERVE] %s: %s", sender_name, text[:200])
                 return
 
-        prompt = _should_respond(msg.text, is_private)
+        if not text:
+            return
+
+        prompt = _should_respond(text, is_private)
         if not prompt:
             return
 
