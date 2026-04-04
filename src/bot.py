@@ -163,6 +163,6 @@ def create_bot(queue: ChatQueue) -> Application:
     app.add_handler(CommandHandler("chatid", cmd_chatid))
     app.add_handler(CommandHandler("tasks", cmd_tasks))
     app.add_handler(CommandHandler("cancel", cmd_cancel))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.CAPTION) & ~filters.COMMAND, handle_message))
 
     return app
