@@ -17,7 +17,7 @@ from telegram.ext import (
 from .config import TELEGRAM_BOT_TOKEN, TRIGGER_PATTERN, ALLOWED_CHAT_IDS
 from .queue import ChatQueue
 from .runner import stream_from_container
-from .db import get_tasks_for_chat, delete_task
+from .db import get_tasks_for_chat, delete_task, store_message
 
 log = logging.getLogger(__name__)
 
@@ -104,6 +104,8 @@ def create_bot(queue: ChatQueue) -> Application:
         if is_group:
             sender_name = msg.from_user.first_name if msg.from_user else "Unknown"
             sender_id = msg.from_user.id if msg.from_user else 0
+            ts = msg.date.isoformat() if msg.date else ""
+            store_message(chat_id, sender_name, sender_id, text, ts)
             if sender_id != OWNER_ID:
                 log.info("[GROUP OBSERVE] %s: %s", sender_name, text[:200])
                 return
@@ -117,6 +119,11 @@ def create_bot(queue: ChatQueue) -> Application:
 
         sender = msg.from_user.first_name if msg.from_user else "Someone"
         full_prompt = f"[Telegram from {sender}]: {prompt}"
+
+        # Store incoming message
+        ts = msg.date.isoformat() if msg.date else ""
+        if not is_group:  # group messages already stored above
+            store_message(chat_id, sender, msg.from_user.id if msg.from_user else 0, text, ts)
 
         log.info("Processing message from %s in chat %s", sender, chat_id)
 
@@ -158,6 +165,10 @@ def create_bot(queue: ChatQueue) -> Application:
                 await msg.reply_text(chunk, parse_mode="Markdown")
             except Exception:
                 await msg.reply_text(chunk)
+
+        # Store bot response
+        from datetime import datetime, timezone
+        store_message(chat_id, "JARVIS", 0, accumulated, datetime.now(timezone.utc).isoformat(), is_bot=True)
 
     app.add_handler(CommandHandler("ping", cmd_ping))
     app.add_handler(CommandHandler("chatid", cmd_chatid))
