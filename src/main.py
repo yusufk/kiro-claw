@@ -3,11 +3,15 @@
 import asyncio
 import logging
 
+from aiohttp import web
+
 from .queue import ChatQueue
 from .bot import create_bot
 from .runner import run_in_container
 from .scheduler import scheduler_loop
 from .ipc import ipc_loop
+from .webhook import create_webhook_app, WEBHOOK_PORT
+from .events import event_processor_loop
 
 logging.basicConfig(
     level=logging.INFO,
@@ -19,9 +23,6 @@ def main():
     queue = ChatQueue(run_in_container)
     app = create_bot(queue)
 
-    # We need the bot instance to send proactive messages.
-    # python-telegram-bot's run_polling() manages its own event loop,
-    # so we hook into post_init to start our background tasks.
     async def post_init(application):
         bot = application.bot
 
@@ -36,7 +37,15 @@ def main():
 
         asyncio.create_task(scheduler_loop(send_fn))
         asyncio.create_task(ipc_loop(send_fn))
-        logging.info("Scheduler and IPC watcher started")
+        asyncio.create_task(event_processor_loop(send_fn))
+
+        # Start webhook server
+        webhook_app = create_webhook_app()
+        runner = web.AppRunner(webhook_app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", WEBHOOK_PORT)
+        await site.start()
+        logging.info("Webhook server on port %d, scheduler, IPC, event processor started", WEBHOOK_PORT)
 
     app.post_init = post_init
     logging.info("Kiro-Claw starting — JARVIS Telegram bridge online")
