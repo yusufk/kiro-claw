@@ -140,36 +140,58 @@ Events are batched (10s window to group rapid-fire triggers), then sent to the J
 
 ### Home Assistant Integration
 
-Add to HA `configuration.yaml`:
+Two things are needed on the HA side:
+
+**1. Add `rest_command` to `configuration.yaml`:**
+
+This creates a reusable service that any automation can call to send events to JARVIS.
 
 ```yaml
 rest_command:
   jarvis_event:
-    url: "http://192.168.1.100:8099/event"
+    url: "http://<MACBOOK_IP>:8099/event"
     method: POST
     headers:
       Authorization: "Bearer YOUR_WEBHOOK_SECRET"
     content_type: "application/json"
-    payload: '{"source":"ha","event_type":"{{ event_type }}","data":{"entity_id":"{{ entity_id }}","state":"{{ state }}","friendly_name":"{{ friendly_name }}"}}'
+    payload: >-
+      {"source":"ha","event_type":"{{ event_type }}","data":{"entity_id":"{{ entity_id }}","state":"{{ state }}","friendly_name":"{{ friendly_name }}"}}
 ```
 
-Then use in automations:
+After adding, restart HA core (`ha core restart`) — a reload won't pick up new integrations.
+
+**2. Add `rest_command.jarvis_event` to your automations:**
+
+Add it as an action in any automation that should notify JARVIS. It works alongside existing Telegram notifications — add it as the first action so JARVIS gets the event immediately:
 
 ```yaml
-automation:
-  - alias: "JARVIS: Driveway motion"
-    trigger:
-      - platform: state
-        entity_id: binary_sensor.driveway_motion
-        to: "on"
-    action:
-      - service: rest_command.jarvis_event
-        data:
-          event_type: "state_changed"
-          entity_id: "{{ trigger.entity_id }}"
-          state: "{{ trigger.to_state.state }}"
-          friendly_name: "{{ trigger.to_state.attributes.friendly_name }}"
+# Example: existing motion automation
+- id: movement_driveway
+  alias: Movement - driveway
+  actions:
+    # JARVIS event (add this)
+    - action: rest_command.jarvis_event
+      data:
+        event_type: state_changed
+        entity_id: movement_driveway
+        state: "There's movement in the driveway"
+        friendly_name: Movement - driveway
+    # Existing Telegram notification (keep this)
+    - action: telegram_bot.send_message
+      data:
+        message: "There's movement in the driveway"
 ```
+
+You can also update automations via the HA API:
+
+```bash
+curl -X POST -H "Authorization: Bearer $HA_TOKEN" \
+  -H "Content-Type: application/json" \
+  "http://localhost:8123/api/config/automation/config/<automation_id>" \
+  -d @automation.json
+```
+
+Then reload: `curl -X POST -H "Authorization: Bearer $HA_TOKEN" http://localhost:8123/api/services/automation/reload`
 
 ## Task Scheduling
 
