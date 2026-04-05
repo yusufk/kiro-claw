@@ -96,20 +96,29 @@ docker build -t kiro-claw-agent container/
 
 ## Event Webhook
 
-Kiro-Claw runs an HTTP server on port **8099** that accepts events from external sources.
+Kiro-Claw runs an HTTP server on port **8099** that accepts events from external sources. Events are routed through the JARVIS container for intelligent processing — not just forwarded as notifications.
+
+JARVIS decides what to do: ignore routine events, alert you about important ones, check cameras, arm the alarm, etc.
+
+### Security
+
+The webhook requires both:
+- **IP allowlist** — only accepts requests from configured IPs (default: `127.0.0.1,192.168.1.125`)
+- **Bearer token** — `Authorization: Bearer <secret>` header required if `WEBHOOK_SECRET` is set
 
 ### Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/event` | Ingest an event |
-| `GET` | `/health` | Health check |
+| `POST` | `/event` | Ingest an event (auth required) |
+| `GET` | `/health` | Health check (no auth) |
 
 ### Event Format
 
 ```bash
 curl -X POST http://macbook:8099/event \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_WEBHOOK_SECRET" \
   -d '{
     "source": "ha",
     "event_type": "state_changed",
@@ -121,7 +130,13 @@ curl -X POST http://macbook:8099/event \
   }'
 ```
 
-Events are stored in SQLite and forwarded to Telegram within 5 seconds. HA events are formatted compactly: `🏠 Driveway Motion: on`.
+### How JARVIS Handles Events
+
+Events are batched (10s window to group rapid-fire triggers), then sent to the JARVIS container as a prompt. JARVIS:
+- Ignores routine events (daytime motion, expected state changes)
+- Alerts you about important events (late-night motion, alarm triggers, doorbell)
+- Takes action when possible (checks cameras, arms alarm, turns on lights)
+- Correlates multiple events into a single assessment
 
 ### Home Assistant Integration
 
@@ -130,8 +145,10 @@ Add to HA `configuration.yaml`:
 ```yaml
 rest_command:
   jarvis_event:
-    url: "http://macbook:8099/event"
+    url: "http://192.168.1.100:8099/event"
     method: POST
+    headers:
+      Authorization: "Bearer YOUR_WEBHOOK_SECRET"
     content_type: "application/json"
     payload: '{"source":"ha","event_type":"{{ event_type }}","data":{"entity_id":"{{ entity_id }}","state":"{{ state }}","friendly_name":"{{ friendly_name }}"}}'
 ```
@@ -199,6 +216,9 @@ Edit `.env` (see `.env.example`):
 | `BRAIN_DIR` | Path to shared brain/memory directory |
 | `PROJECTS` | Comma-separated project paths to mount at `/workspace/projects/` |
 | `EXTRA_HOSTS` | LAN DNS entries: `hostname:ip,hostname:ip` |
+| `WEBHOOK_SECRET` | Bearer token for webhook auth |
+| `WEBHOOK_ALLOWED_IPS` | Comma-separated IPs allowed to POST events (default: `127.0.0.1,192.168.1.125`) |
+| `WEBHOOK_PORT` | Webhook listen port (default: `8099`) |
 | `MCP_*` | MCP server secrets injected into container |
 
 ## Project Structure
