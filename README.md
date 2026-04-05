@@ -1,32 +1,65 @@
 # Kiro-Claw 🦞
 
-A Telegram bot that bridges messages to [JARVIS](https://cli.kiro.dev/) (Kiro CLI agent) running inside a persistent Docker container. Includes task scheduling, proactive messaging, and live response streaming.
+A Telegram bot that bridges messages to [JARVIS](https://cli.kiro.dev/) (Kiro CLI agent) running inside a persistent Docker container. Includes task scheduling, proactive messaging, event ingestion, and live response streaming.
 
 ## Architecture
 
 ```
-Telegram ──→ python-telegram-bot ──→ per-chat async lock ──→ Docker container (persistent)
-                                                                    │
-                                                              kiro-cli chat
-                                                              --resume (session continuity)
-                                                              --agent JARVIS
-                                                                    │
-Telegram ←── streaming drafts + msg split ←── redact secrets ←── clean output ←── JSON stdout ←┘
-
-Background loops:
-  Scheduler ──→ polls SQLite for due tasks ──→ runs prompt in container ──→ sends result to Telegram
-  IPC Watcher ──→ polls data/ipc/ for JSON files ──→ sends messages / creates tasks
+                          ┌─────────────────────────────────────────────┐
+                          │              Kiro-Claw Host                 │
+                          │                                             │
+  Telegram ──────────────►│  python-telegram-bot                        │
+                          │       │                                     │
+                          │       ▼                                     │
+                          │  per-chat async lock ──► Docker container   │
+                          │                          (persistent)       │
+                          │                          kiro-cli --resume  │
+                          │                               │             │
+  Telegram ◄──────────────│  streaming drafts ◄── clean ◄─┘             │
+                          │                                             │
+                          │  ┌─────────────────────────────────────┐    │
+                          │  │         SQLite (kiro-claw.db)       │    │
+                          │  │  ┌──────────┬──────────┬──────────┐ │    │
+                          │  │  │ messages │  events  │  tasks   │ │    │
+                          │  │  └──────────┴──────────┴──────────┘ │    │
+                          │  └─────────────────────────────────────┘    │
+                          │       ▲            ▲            ▲           │
+                          │       │            │            │           │
+                          │  Bot handler  Webhook:8099  Scheduler      │
+                          │  (stores all  (POST /event) (polls 30s)    │
+                          │   messages)        │                       │
+                          │                    ▼                       │
+                          │              Event processor               │
+                          │              (polls 5s → Telegram)         │
+                          │                                             │
+                          │  IPC watcher (polls data/ipc/ every 2s)    │
+                          └─────────────────────────────────────────────┘
+                                               ▲
+                                               │ POST /event
+                                               │
+                          ┌────────────────────────────────────────────┐
+                          │  Home Assistant (cappucino)                │
+                          │  rest_command → http://macbook:8099/event  │
+                          └────────────────────────────────────────────┘
 ```
 
-**Key design decisions:**
+### Data Flow
+
+1. **Telegram → JARVIS**: Messages arrive via polling, get queued per-chat, forwarded to the persistent Docker container running `kiro-cli --resume`. Responses stream back via `sendMessageDraft`.
+2. **External events → Telegram**: HA (or any source) POSTs to `/event` on port 8099. Events are stored in SQLite and the event processor forwards them to Telegram within 5 seconds.
+3. **Scheduled tasks**: Stored in SQLite, polled every 30s. Due tasks run their prompt through the container and send results to Telegram.
+4. **Container → Telegram**: The container writes JSON files to `/workspace/ipc/` for proactive messaging and task management.
+5. **Message history**: All Telegram messages (user, bot, group observations) are persisted in SQLite for conversation context.
+
+### Key Design Decisions
+
 - **Persistent container** — one long-running container, not one per message. Eliminates ~15s cold start overhead.
 - **Session resume** — `kiro-cli chat --resume` maintains conversation context across messages.
-- **stdin/stdout IPC** — JSON lines in, marker-delimited JSON out. No HTTP, no sockets.
+- **Unified SQLite DB** — messages, events, and tasks in one database (`data/kiro-claw.db`). Inspired by [nanoclaw](https://github.com/yusufk/nanoclaw).
+- **Transport-agnostic event bus** — the `events` table doesn't care how events arrive (webhook, MQTT, IPC). Processors just poll the table.
 - **Per-chat locking** — `asyncio.Lock` per chat ID serialises messages so the container handles one at a time.
-- **Container isolation** — kiro-cli runs as unprivileged `node` user. Agent config is separate from host `~/.kiro`.
 - **Secret redaction** — all MCP secret values are pattern-matched and stripped from output before delivery to Telegram.
 - **Streaming** — `sendMessageDraft` (Bot API 9.3) streams partial responses live in Telegram.
-- **File-based IPC** — container writes JSON to `/workspace/ipc/` for proactive messaging and task scheduling.
 
 ## Quick Start
 
@@ -50,8 +83,6 @@ docker build -t kiro-claw-agent container/
 ./kiro-claw.sh logs         # tail the log file
 ```
 
-Logs: `data/kiro-claw.log` | PID: `data/kiro-claw.pid`
-
 ## Bot Commands
 
 | Command | Description |
@@ -63,15 +94,75 @@ Logs: `data/kiro-claw.log` | PID: `data/kiro-claw.pid`
 | Any message (private chat) | Forwarded to JARVIS agent |
 | `@jarvis <message>` (group) | Trigger prefix for group chats |
 
+## Event Webhook
+
+Kiro-Claw runs an HTTP server on port **8099** that accepts events from external sources.
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/event` | Ingest an event |
+| `GET` | `/health` | Health check |
+
+### Event Format
+
+```bash
+curl -X POST http://macbook:8099/event \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "ha",
+    "event_type": "state_changed",
+    "data": {
+      "entity_id": "binary_sensor.driveway_motion",
+      "state": "on",
+      "friendly_name": "Driveway Motion"
+    }
+  }'
+```
+
+Events are stored in SQLite and forwarded to Telegram within 5 seconds. HA events are formatted compactly: `🏠 Driveway Motion: on`.
+
+### Home Assistant Integration
+
+Add to HA `configuration.yaml`:
+
+```yaml
+rest_command:
+  jarvis_event:
+    url: "http://macbook:8099/event"
+    method: POST
+    content_type: "application/json"
+    payload: '{"source":"ha","event_type":"{{ event_type }}","data":{"entity_id":"{{ entity_id }}","state":"{{ state }}","friendly_name":"{{ friendly_name }}"}}'
+```
+
+Then use in automations:
+
+```yaml
+automation:
+  - alias: "JARVIS: Driveway motion"
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.driveway_motion
+        to: "on"
+    action:
+      - service: rest_command.jarvis_event
+        data:
+          event_type: "state_changed"
+          entity_id: "{{ trigger.entity_id }}"
+          state: "{{ trigger.to_state.state }}"
+          friendly_name: "{{ trigger.to_state.attributes.friendly_name }}"
+```
+
 ## Task Scheduling
 
-Scheduling is handled entirely by the AI agent — no rigid command syntax needed. Just talk naturally:
+Scheduling is handled by the AI agent — just talk naturally:
 
 - "wake me up in 10 minutes"
 - "remind me to check the server every hour"
 - "every morning at 9am give me a briefing"
 
-JARVIS understands the intent, computes the time, and calls the `jarvis-schedule` IPC tool. Tasks are stored in SQLite (`data/tasks.db`) and polled every 30 seconds. Use `/tasks` to see what's scheduled and `/cancel` to remove one.
+JARVIS understands the intent and calls the `jarvis-schedule` IPC tool. Tasks are stored in SQLite and polled every 30 seconds.
 
 ## Proactive Messaging (Container → Telegram)
 
@@ -80,46 +171,20 @@ The container agent can initiate messages and schedule tasks by writing JSON fil
 ### Container IPC tools (available in PATH)
 
 ```bash
-# Send a message to Telegram
 jarvis-send $JARVIS_CHAT_ID "Sir, the backup completed successfully."
-
-# Schedule a task
 jarvis-schedule $JARVIS_CHAT_ID cron "0 9 * * *" "Good morning briefing"
-jarvis-schedule $JARVIS_CHAT_ID interval 3600000 "Hourly system check"
-jarvis-schedule $JARVIS_CHAT_ID once "2026-03-22T10:00" "Remind about meeting"
-
-# Cancel a task
 jarvis-cancel-task <task_id>
-```
-
-`$JARVIS_CHAT_ID` is set automatically from the incoming message's chat ID.
-
-### IPC JSON format (for reference)
-
-```json
-{"type": "message", "chat_id": 12345, "text": "Hello from JARVIS"}
-{"type": "schedule_task", "chat_id": 12345, "prompt": "Check health", "schedule_type": "cron", "schedule_value": "0 9 * * *"}
-{"type": "cancel_task", "task_id": "task-abc123"}
 ```
 
 ## Security Model
 
 Secrets never reach Telegram, enforced at three layers:
 
-1. **Isolated agent config** — container gets `data/agent.json` (gitignored), not `~/.kiro`. Secrets use `__ENV:VAR__` placeholders resolved at startup from container env vars.
-2. **Prompt instruction** — container agent prompt includes a rule to never output credentials.
-3. **Output redaction** — `_clean()` in `runner.py` pattern-matches all `MCP_*` secret values from `.env` and replaces them with `[REDACTED]` before anything is sent to Telegram.
-4. **Env file injection** — secrets passed via `--env-file` (temp file, 0600 perms, deleted after container ready). Never visible in `ps aux`.
+1. **Isolated agent config** — container gets `data/agent.json` (gitignored), not `~/.kiro`. Secrets use `__ENV:VAR__` placeholders resolved at startup.
+2. **Output redaction** — `runner.py` pattern-matches all `MCP_*` secret values and replaces them with `[REDACTED]`.
+3. **Env file injection** — secrets passed via `--env-file` (temp file, 0600 perms, deleted after container ready). Never visible in `ps aux`.
 
-## Setup Details
-
-### Prerequisites
-
-- Docker (Rancher Desktop recommended)
-- Python 3.11+
-- A Telegram bot token from [@BotFather](https://t.me/BotFather)
-
-### Configuration
+## Configuration
 
 Edit `.env` (see `.env.example`):
 
@@ -132,33 +197,43 @@ Edit `.env` (see `.env.example`):
 | `CONTAINER_TIMEOUT` | Max response time in seconds (default: `300`) |
 | `ALLOWED_CHAT_IDS` | Comma-separated allowed Telegram chat IDs |
 | `BRAIN_DIR` | Path to shared brain/memory directory |
+| `PROJECTS` | Comma-separated project paths to mount at `/workspace/projects/` |
 | `EXTRA_HOSTS` | LAN DNS entries: `hostname:ip,hostname:ip` |
 | `MCP_*` | MCP server secrets injected into container |
 
-### Build the agent container
+## Project Structure
 
-```bash
-docker build -t kiro-claw-agent container/
 ```
-
-### Authenticate kiro-cli (one-time)
-
-```bash
-docker run --rm -it \
-  -v ./data/agent.json:/home/node/.kiro/agents/JARVIS.json:rw \
-  -v ./data/kiro-data:/home/node/.local/share/kiro-cli:rw \
-  --entrypoint kiro-cli \
-  kiro-claw-agent:latest login --use-device-flow
+kiro-claw/
+├── kiro-claw.sh              # Start/stop/status management
+├── pyproject.toml
+├── src/
+│   ├── main.py               # Entry point — wires bot + scheduler + IPC + webhook + events
+│   ├── bot.py                # Telegram handlers, message storage
+│   ├── runner.py             # Docker container lifecycle + streaming
+│   ├── queue.py              # Per-chat async locking
+│   ├── config.py             # Environment config loader
+│   ├── db.py                 # SQLite: messages, events, tasks
+│   ├── scheduler.py          # Task scheduler (polls every 30s)
+│   ├── ipc.py                # IPC watcher (polls data/ipc/ every 2s)
+│   ├── webhook.py            # HTTP server on :8099 for event ingestion
+│   └── events.py             # Event processor (polls events table every 5s)
+├── container/
+│   ├── Dockerfile
+│   ├── entrypoint.py
+│   └── tools/
+│       ├── jarvis-send
+│       ├── jarvis-schedule
+│       └── jarvis-cancel-task
+├── data/                     # Runtime data (gitignored)
+│   ├── kiro-claw.db          # Unified SQLite database
+│   ├── agent.json            # Container agent config
+│   ├── kiro-data/            # kiro-cli auth tokens
+│   ├── ipc/                  # IPC message queue
+│   ├── kiro-claw.log
+│   └── kiro-claw.pid
+└── README.md
 ```
-
-## Container Mounts
-
-| Host | Container | Mode | Purpose |
-|------|-----------|------|---------|
-| `data/agent.json` | `/home/node/.kiro/agents/JARVIS.json` | rw | Agent config |
-| `data/kiro-data/` | `/home/node/.local/share/kiro-cli/` | rw | Auth tokens |
-| `BRAIN_DIR` | `/workspace/brain/` | rw | Shared memory |
-| `data/ipc/` | `/workspace/ipc/` | rw | Proactive messaging IPC |
 
 ## Response Times
 
@@ -167,36 +242,4 @@ docker run --rm -it \
 | Container startup (one-time) | ~1.5s |
 | First message (kiro-cli cold) | ~45s |
 | Subsequent messages (warm + resume) | ~11-18s |
-
-## Project Structure
-
-```
-kiro-claw/
-├── kiro-claw.sh              # Start/stop/status management script
-├── .env                      # Configuration (gitignored)
-├── pyproject.toml             # Python package config
-├── src/
-│   ├── main.py               # Entry point — wires bot + scheduler + IPC
-│   ├── bot.py                # Telegram bot handlers + /remind /tasks /cancel
-│   ├── runner.py             # Docker container lifecycle + streaming
-│   ├── queue.py              # Per-chat async locking
-│   ├── config.py             # Environment config loader
-│   ├── scheduler.py          # Task scheduler (SQLite + asyncio poll loop)
-│   ├── ipc.py                # IPC watcher (polls data/ipc/ for JSON files)
-│   └── db.py                 # SQLite task database
-├── container/
-│   ├── Dockerfile            # Agent container (node + kiro-cli + tools)
-│   ├── entrypoint.py         # Container stdin loop + kiro-cli invocation
-│   └── tools/                # IPC shell scripts for container agent
-│       ├── jarvis-send       # Send proactive Telegram message
-│       ├── jarvis-schedule   # Create scheduled task
-│       └── jarvis-cancel-task # Cancel a task
-├── data/                     # Runtime data (gitignored)
-│   ├── agent.json            # Container agent config
-│   ├── kiro-data/            # kiro-cli auth tokens
-│   ├── tasks.db              # Scheduled tasks database
-│   ├── ipc/                  # IPC message queue directory
-│   ├── kiro-claw.log         # Bot log file
-│   └── kiro-claw.pid         # Bot PID file
-└── README.md
-```
+| Webhook event → Telegram | <5s |
