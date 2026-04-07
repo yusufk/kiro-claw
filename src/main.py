@@ -35,8 +35,15 @@ def main():
                 except Exception:
                     await bot.send_message(chat_id, chunk)
 
+        async def send_photo_fn(chat_id: int, photo_path: str, caption: str = ""):
+            try:
+                with open(photo_path, "rb") as f:
+                    await bot.send_photo(chat_id, photo=f, caption=caption or None)
+            except Exception as e:
+                logging.error("Failed to send photo %s: %s", photo_path, e)
+
         asyncio.create_task(scheduler_loop(send_fn))
-        asyncio.create_task(ipc_loop(send_fn))
+        asyncio.create_task(ipc_loop(send_fn, send_photo_fn))
         asyncio.create_task(event_processor_loop(send_fn))
 
         # Start webhook server
