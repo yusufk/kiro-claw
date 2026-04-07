@@ -213,7 +213,10 @@ The container agent can initiate messages and schedule tasks by writing JSON fil
 jarvis-send $JARVIS_CHAT_ID "Sir, the backup completed successfully."
 jarvis-schedule $JARVIS_CHAT_ID cron "0 9 * * *" "Good morning briefing"
 jarvis-cancel-task <task_id>
+jarvis-photo $JARVIS_CHAT_ID camera.network_video_recorder_channel_7 "Driveway"
 ```
+
+See [`container/tools/README.md`](container/tools/README.md) for full docs and how to add new tools.
 
 ## Security Model
 
