@@ -27,7 +27,7 @@ def _is_allowed(chat_id: int) -> bool:
     return not ALLOWED_CHAT_IDS or chat_id in ALLOWED_CHAT_IDS
 
 
-async def _process_file(filepath: Path, send_fn):
+async def _process_file(filepath: Path, send_fn, send_photo_fn=None):
     """Process a single IPC JSON file."""
     try:
         data = json.loads(filepath.read_text())
@@ -57,6 +57,14 @@ async def _process_file(filepath: Path, send_fn):
             if delete_task(data["task_id"]):
                 log.info("IPC task cancelled: %s", data["task_id"])
 
+        elif msg_type == "photo":
+            chat_id = data.get("chat_id")
+            photo_path = data.get("path")
+            caption = data.get("caption", "")
+            if chat_id and photo_path and _is_allowed(int(chat_id)):
+                await send_photo_fn(int(chat_id), photo_path, caption)
+                log.info("IPC photo sent to %s: %s", chat_id, photo_path)
+
         else:
             log.warning("Unknown IPC type: %s", msg_type)
 
@@ -71,7 +79,7 @@ async def _process_file(filepath: Path, send_fn):
     filepath.unlink(missing_ok=True)
 
 
-async def ipc_loop(send_fn):
+async def ipc_loop(send_fn, send_photo_fn=None):
     """Poll IPC directory for JSON files from the container."""
     IPC_DIR.mkdir(parents=True, exist_ok=True)
     log.info("IPC watcher started: %s", IPC_DIR)
@@ -82,7 +90,7 @@ async def ipc_loop(send_fn):
                 # Skip files still being written (modified < 1s ago)
                 if time.time() - f.stat().st_mtime < 1:
                     continue
-                await _process_file(f, send_fn)
+                await _process_file(f, send_fn, send_photo_fn)
         except Exception as e:
             log.error("IPC watcher error: %s", e)
         await asyncio.sleep(POLL_INTERVAL)
