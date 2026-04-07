@@ -1,0 +1,37 @@
+#!/bin/sh
+# jarvis-photo — grab HA camera snapshot and queue as IPC photo
+# Usage: jarvis-photo <chat_id> <camera_entity_id> [caption]
+set -e
+
+CHAT_ID="$1"
+ENTITY="$2"
+CAPTION="${3:-}"
+IPC_DIR="/workspace/ipc"
+SCRATCH="/workspace/scratch"
+HA_URL="http://cappucino:8123"
+HA_TOKEN="$MCP_HOME_ASSISTANT_API_ACCESS_TOKEN"
+
+if [ -z "$CHAT_ID" ] || [ -z "$ENTITY" ]; then
+  echo "Usage: jarvis-photo <chat_id> <camera_entity_id> [caption]"
+  exit 1
+fi
+
+mkdir -p "$SCRATCH" "$IPC_DIR"
+
+FILENAME="snapshot_$(date +%s).jpg"
+FILEPATH="$SCRATCH/$FILENAME"
+
+# Grab snapshot from HA camera proxy
+curl -sf -o "$FILEPATH" \
+  -H "Authorization: Bearer $HA_TOKEN" \
+  "$HA_URL/api/camera_proxy/$ENTITY" || {
+    echo "Failed to grab snapshot from $ENTITY"
+    exit 1
+  }
+
+# Queue IPC photo
+cat > "$IPC_DIR/photo_$(date +%s%N).json" << EOF
+{"type":"photo","chat_id":$CHAT_ID,"path":"$FILEPATH","caption":"$CAPTION"}
+EOF
+
+echo "Snapshot queued: $ENTITY -> $FILEPATH"
