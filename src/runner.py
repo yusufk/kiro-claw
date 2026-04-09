@@ -82,6 +82,12 @@ async def _ensure_container():
     cmd.insert(-1, "-v")
     cmd.insert(-1, f"{_ipc_dir}:/workspace/ipc:rw")
 
+    # Mount scratch directory for photos/snapshots (shared between container and host)
+    _scratch_dir = _PROJECT_DIR / "data" / "scratch"
+    _scratch_dir.mkdir(parents=True, exist_ok=True)
+    cmd.insert(-1, "-v")
+    cmd.insert(-1, f"{_scratch_dir}:/workspace/scratch:rw")
+
     for entry in EXTRA_HOSTS.split(","):
         entry = entry.strip()
         if entry:
