@@ -45,8 +45,8 @@ A Telegram bot that bridges messages to [JARVIS](https://cli.kiro.dev/) (Kiro CL
 
 ### Data Flow
 
-1. **Telegram → JARVIS**: Messages arrive via polling, get queued per-chat, forwarded to the persistent Docker container running `kiro-cli --resume`. Responses stream back via `sendMessageDraft`.
-2. **External events → Telegram**: HA (or any source) POSTs to `/event` on port 8099. Events are stored in SQLite and the event processor forwards them to Telegram within 5 seconds.
+1. **Telegram → JARVIS** (Chat pipeline): Messages arrive via polling, get queued per-chat, forwarded to the persistent Docker container running `kiro-cli --resume`. Responses stream back via `sendMessageDraft`.
+2. **External events → JARVIS** (Event pipeline): HA (or any source) POSTs to `/event` on port 8099. Events are batched, sent to the container silently. Container stdout is discarded — all output goes through IPC (`jarvis-send`, `jarvis-photo`).
 3. **Scheduled tasks**: Stored in SQLite, polled every 30s. Due tasks run their prompt through the container and send results to Telegram.
 4. **Container → Telegram**: The container writes JSON files to `/workspace/ipc/` for proactive messaging and task management.
 5. **Message history**: All Telegram messages (user, bot, group observations) are persisted in SQLite for conversation context.
@@ -132,11 +132,14 @@ curl -X POST http://macbook:8099/event \
 
 ### How JARVIS Handles Events
 
-Events are batched (10s window to group rapid-fire triggers), then sent to the JARVIS container as a prompt. JARVIS:
-- Ignores routine events (daytime motion, expected state changes)
-- Alerts you about important events (late-night motion, alarm triggers, doorbell)
-- Takes action when possible (checks cameras, arms alarm, turns on lights)
-- Correlates multiple events into a single assessment
+Events are processed through a **separate pipeline** from chat messages:
+
+```
+Events: webhook → events table → container (silent) → IPC only (jarvis-send/jarvis-photo)
+Chat:   Telegram → container → streaming drafts → direct reply
+```
+
+The container's stdout is **discarded** for events — all output goes exclusively through IPC tools. This cleanly separates the two pipelines and avoids tool execution noise leaking into Telegram.
 
 ### Home Assistant Integration
 
