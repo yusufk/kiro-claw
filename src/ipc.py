@@ -61,6 +61,9 @@ async def _process_file(filepath: Path, send_fn, send_photo_fn=None):
             chat_id = data.get("chat_id")
             photo_path = data.get("path")
             caption = data.get("caption", "")
+            # Translate container path to host path
+            if photo_path and photo_path.startswith("/workspace/scratch/"):
+                photo_path = str(IPC_DIR.parent / "scratch" / photo_path.split("/workspace/scratch/")[1])
             if chat_id and photo_path and _is_allowed(int(chat_id)):
                 await send_photo_fn(int(chat_id), photo_path, caption)
                 log.info("IPC photo sent to %s: %s", chat_id, photo_path)
