@@ -31,7 +31,7 @@ def _summarise_events(events: list[dict]) -> str:
         source = e["source"]
         etype = e["event_type"]
 
-        if source == "ha":
+        if source == "ha" and isinstance(data, dict):
             entity = data.get("entity_id", "")
             state = data.get("state", "")
             friendly = data.get("friendly_name", entity)
