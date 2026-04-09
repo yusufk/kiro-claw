@@ -160,13 +160,6 @@ def create_bot(queue: ChatQueue) -> Application:
         if not accumulated:
             accumulated = "No response from container."
 
-        # Suppress empty/acknowledgment responses (JARVIS already sent via IPC)
-        clean = accumulated.strip().strip(".")
-        if not clean or clean.lower() in ("ok", "acknowledged", "noted", "done", "silent"):
-            from datetime import datetime, timezone
-            store_message(chat_id, "JARVIS", 0, accumulated, datetime.now(timezone.utc).isoformat(), is_bot=True)
-            return
-
         for chunk in _split_message(accumulated):
             try:
                 await msg.reply_text(chunk, parse_mode="Markdown")
