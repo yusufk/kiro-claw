@@ -35,9 +35,16 @@ for _val in MCP_SECRETS.values():
 
 
 def _clean(text: str) -> str:
-    """Strip ANSI codes, kiro-cli prefix, and any leaked secrets."""
+    """Strip ANSI codes, kiro-cli prefix, tool noise, and any leaked secrets."""
     text = _ANSI_RE.sub("", text)
     text = re.sub(r"^> ", "", text, flags=re.MULTILINE)
+    # Strip kiro-cli tool execution noise
+    text = re.sub(r"^I will run the following command:.*$", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\(using tool:.*$", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^- Completed in [\d.]+s$", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^(Snapshot queued|Message queued|Failed to grab):?.*$", "", text, flags=re.MULTILINE)
+    # Collapse multiple blank lines
+    text = re.sub(r"\n{3,}", "\n\n", text)
     for pat in _REDACT_PATTERNS:
         text = pat.sub("[REDACTED]", text)
     return text.strip()
