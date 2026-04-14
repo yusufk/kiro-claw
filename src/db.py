@@ -158,3 +158,12 @@ def get_recent_events(source: str = None, limit: int = 20) -> list[dict]:
     else:
         rows = db.execute("SELECT * FROM events ORDER BY timestamp DESC LIMIT ?", (limit,)).fetchall()
     return [dict(r) for r in reversed(rows)]
+
+
+def get_events_since(since_ts: str) -> list[dict]:
+    """Get all events since a given ISO timestamp."""
+    db = _conn()
+    rows = db.execute(
+        "SELECT * FROM events WHERE timestamp >= ? ORDER BY timestamp", (since_ts,)
+    ).fetchall()
+    return [dict(r) for r in rows]

@@ -16,7 +16,7 @@ case "${1:-start}" in
     fi
     echo "Starting Kiro-Claw..."
     cd "$DIR"
-    nohup python -m src.main >> "$LOGFILE" 2>&1 &
+    nohup /Users/yusuf/.pyenv/shims/python3 -m src.main >> "$LOGFILE" 2>&1 &
     echo $! > "$PIDFILE"
     echo "Started (PID $!), logging to $LOGFILE"
     ;;
