@@ -8,6 +8,12 @@ LOGFILE="$DIR/data/kiro-claw.log"
 
 mkdir -p "$DIR/data"
 
+# Ensure agent.json exists (copy from template if missing)
+if [ ! -f "$DIR/data/agent.json" ]; then
+  cp "$DIR/agent.json.example" "$DIR/data/agent.json"
+  echo "Created data/agent.json from template — edit secrets or ensure .env has them"
+fi
+
 case "${1:-start}" in
   start)
     if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then

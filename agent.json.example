@@ -23,7 +23,7 @@
       "command": "mcp-proxy",
       "env": {
         "SSE_URL": "http://cappucino:8123/mcp_server/sse",
-        "API_ACCESS_TOKEN": "<your-api-access-token>"
+        "API_ACCESS_TOKEN": "__ENV:MCP_HOME_ASSISTANT_API_ACCESS_TOKEN__"
       }
     },
     "mcp-obsidian": {
@@ -32,7 +32,7 @@
         "mcp-obsidian"
       ],
       "env": {
-        "OBSIDIAN_API_KEY": "<your-obsidian-api-key>"
+        "OBSIDIAN_API_KEY": "__ENV:MCP_MCP_OBSIDIAN_OBSIDIAN_API_KEY__"
       }
     },
     "wordpress-masjid": {
@@ -44,7 +44,7 @@
       "env": {
         "WP_API_URL": "https://www.masjidurrahmah.org.za/wp-json/mcp/mcp-adapter-default-server",
         "WP_API_USERNAME": "livemasjid",
-        "WP_API_PASSWORD": "<your-wp-api-password>"
+        "WP_API_PASSWORD": "__ENV:MCP_WORDPRESS_MASJID_WP_API_PASSWORD__"
       }
     },
     "playwright": {

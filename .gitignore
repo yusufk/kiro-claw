@@ -4,13 +4,4 @@ __pycache__/
 *.egg-info/
 dist/
 build/
-data/kiro-claw.db
-data/kiro-claw.log
-data/kiro-claw.pid
-data/tasks.db
-data/tasks.db.bak
-data/kiro-data/
-data/ipc/
-data/scratch/
-data/agent.json
-data/brain/
+data/
