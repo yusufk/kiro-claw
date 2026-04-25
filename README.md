@@ -298,10 +298,10 @@ Kiro-Claw uses [MemPalace](https://github.com/milla-jovovich/mempalace) for pers
 
 ### How it works
 
-- **~120 files indexed** across the Obsidian vault, chunked into ~1,900 searchable fragments in ChromaDB
-- **Semantic search** — finds things by meaning, not just keywords
+- **Semantic search** — finds things by meaning, not just keywords, using local ChromaDB
 - **Shared palace** — `~/.mempalace/` is mounted into the container at `/home/node/.mempalace/`
-- **Path rewriting** — `entrypoint.py` patches Mac paths to container paths at startup
+- **Path rewriting** — `entrypoint.py` patches host paths to container paths at startup
+- **MCP tools** — 19 tools available to the agent: search, add, delete, knowledge graph queries
 
 ### Container setup
 
@@ -316,7 +316,7 @@ The Dockerfile installs `mempalace` and the runner mounts the palace directory:
 
 - **contextCompact hook** — writes a save marker before context compression; the agent saves key context to MemPalace
 - **Periodic saves** — agent prompt instructs proactive saves every 10-15 exchanges
-- **Re-mining** — `mempalace mine` re-ingests the Obsidian vault to pick up new notes
+- **Re-mining** — `mempalace mine <dir>` re-ingests your notes to pick up changes
 
 ### Replicating to another machine
 
@@ -324,10 +324,9 @@ The Dockerfile installs `mempalace` and the runner mounts the palace directory:
 # Copy the palace
 scp -r ~/.mempalace/ user@other-machine:~/
 
-# Or mine fresh from the shared brain repo
-git clone git@github.com:yusufk/obsidian.git ~/vault
-mempalace init ~/vault --yes
-mempalace mine ~/vault --wing yusufs_vault
+# Or mine fresh from your notes
+mempalace init ~/path/to/notes --yes
+mempalace mine ~/path/to/notes --wing my_notes
 ```
 
 ## DEFCON System
