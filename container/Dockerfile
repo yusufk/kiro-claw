@@ -20,6 +20,9 @@ RUN uv tool install mcp-proxy \
 # Pre-cache playwright MCP for npx
 RUN npx -y @playwright/mcp@latest --help 2>/dev/null || true
 
+# Install mempalace for semantic memory
+RUN pip install --break-system-packages mempalace
+
 # Create workspace dirs
 RUN mkdir -p /workspace/brain /workspace/scratch /workspace/ipc /home/node/.kiro \
     && chown -R node:node /workspace /home/node /opt/uv-tools
