@@ -24,7 +24,9 @@ def _patch_agent_configs():
         fpath = os.path.join(agents_dir, fname)
         try:
             raw = open(fpath).read()
-            patched = _ENV_PLACEHOLDER.sub(lambda m: os.environ.get(m.group(1), ""), raw)
+            # Rewrite Mac paths to container paths
+            patched = raw.replace("/Users/yusuf/Documents/Obsidian/Yusufs Vault/AI brain", "/workspace/brain")
+            patched = _ENV_PLACEHOLDER.sub(lambda m: os.environ.get(m.group(1), ""), patched)
             if patched != raw:
                 open(fpath, "w").write(patched)
         except Exception:
@@ -34,6 +36,20 @@ def _patch_agent_configs():
 def write_output(status, result=None, error=None):
     msg = json.dumps({"status": status, "result": result, "error": error})
     print(f"{OUTPUT_START}\n{msg}\n{OUTPUT_END}", flush=True)
+
+
+def _patch_mempalace_config():
+    """Rewrite Mac paths in mempalace config to container paths."""
+    cfg_path = os.path.expanduser("~/.mempalace/config.json")
+    if not os.path.exists(cfg_path):
+        return
+    try:
+        raw = open(cfg_path).read()
+        patched = raw.replace("/Users/yusuf/.mempalace/palace", "/home/node/.mempalace/palace")
+        if patched != raw:
+            open(cfg_path, "w").write(patched)
+    except Exception:
+        pass
 
 
 def handle(data):
@@ -74,6 +90,7 @@ def handle(data):
 
 def main():
     _patch_agent_configs()
+    _patch_mempalace_config()
     print("KIROCLAW_READY", flush=True)
     for line in sys.stdin:
         line = line.strip()
