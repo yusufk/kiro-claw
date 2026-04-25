@@ -291,3 +291,66 @@ kiro-claw/
 | First message (kiro-cli cold) | ~45s |
 | Subsequent messages (warm + resume) | ~11-18s |
 | Webhook event → Telegram | <5s |
+
+## Memory System (MemPalace)
+
+Kiro-Claw uses [MemPalace](https://github.com/milla-jovovich/mempalace) for persistent semantic memory — a local ChromaDB-backed system with 19 MCP tools.
+
+### How it works
+
+- **1,900+ searchable memories** mined from the Obsidian vault (notes, context logs, knowledge graph entities)
+- **Semantic search** — finds things by meaning, not just keywords
+- **Shared palace** — `~/.mempalace/` is mounted into the container at `/home/node/.mempalace/`
+- **Path rewriting** — `entrypoint.py` patches Mac paths to container paths at startup
+
+### Container setup
+
+The Dockerfile installs `mempalace` and the runner mounts the palace directory:
+
+```python
+# runner.py mounts:
+~/.mempalace/ → /home/node/.mempalace:rw
+```
+
+### Keeping memories fresh
+
+- **contextCompact hook** — writes a save marker before context compression; the agent saves key context to MemPalace
+- **Periodic saves** — agent prompt instructs proactive saves every 10-15 exchanges
+- **Re-mining** — `mempalace mine` re-ingests the Obsidian vault to pick up new notes
+
+### Replicating to another machine
+
+```bash
+# Copy the palace
+scp -r ~/.mempalace/ user@other-machine:~/
+
+# Or mine fresh from the shared brain repo
+git clone git@github.com:yusufk/obsidian.git ~/vault
+mempalace init ~/vault --yes
+mempalace mine ~/vault --wing yusufs_vault
+```
+
+## DEFCON System
+
+Events from Home Assistant are filtered by a DEFCON level before reaching the container. This controls how chatty the system is.
+
+| Level | Events that reach the agent |
+|-------|---------------------------|
+| 5 (lowest) | Alarm arm/disarm only → triggers briefings |
+| 4 | + doorbell, alarm triggered, tamper |
+| 3 | + all movement/motion events |
+| 2 | + all other events |
+| 1 (highest) | Everything + proactive checks |
+
+### Auto-escalation
+
+- **9PM–7AM**: System enforces at least DEFCON 3 automatically (movement events pass through)
+- **Evening briefing** (alarm armed): Agent bumps DEFCON to 3 in the knowledge graph
+- **Morning briefing** (alarm disarmed): Agent resets DEFCON to 5
+- **Manual override**: User can say "set defcon 2" via Telegram
+
+### Briefings
+
+When the alarm arms (9PM) or disarms (7AM), the event processor generates a briefing request with a 12-hour event summary. The agent sends a concise 3-5 line report via `jarvis-send`.
+
+Dedup logic prevents duplicate briefings within 5 minutes (fixes the triple-fire bug from HA state replays).
