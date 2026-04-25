@@ -41,6 +41,9 @@ case "${1:-start}" in
   restart)
     "$0" stop
     sleep 2
+    # Mine kiro-claw container sessions into MemPalace before restarting
+    /Users/yusuf/.pyenv/versions/3.12.8/bin/python -m mempalace mine \
+      "$DIR/data/kiro-data" --mode convos --wing friday_sessions --agent friday 2>/dev/null || true
     "$0" start
     ;;
   status)
