@@ -298,7 +298,7 @@ Kiro-Claw uses [MemPalace](https://github.com/milla-jovovich/mempalace) for pers
 
 ### How it works
 
-- **1,900+ searchable memories** mined from the Obsidian vault (notes, context logs, knowledge graph entities)
+- **~120 files indexed** across the Obsidian vault, chunked into ~1,900 searchable fragments in ChromaDB
 - **Semantic search** — finds things by meaning, not just keywords
 - **Shared palace** — `~/.mempalace/` is mounted into the container at `/home/node/.mempalace/`
 - **Path rewriting** — `entrypoint.py` patches Mac paths to container paths at startup
