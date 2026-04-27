@@ -20,6 +20,8 @@ case "${1:-start}" in
       echo "Already running (PID $(cat "$PIDFILE"))"
       exit 0
     fi
+    # Kill any orphan holding the webhook port
+    lsof -ti :8099 | xargs kill -9 2>/dev/null || true
     echo "Starting Kiro-Claw..."
     cd "$DIR"
     nohup /Users/yusuf/.pyenv/shims/python3 -m src.main >> "$LOGFILE" 2>&1 &
