@@ -1,4 +1,4 @@
-"""Telegram bot — receives messages, dispatches to queue, returns responses."""
+"""Telegram bot — receives messages, dispatches to container, IPC-only responses."""
 
 import asyncio
 import logging
@@ -22,7 +22,6 @@ from .db import get_tasks_for_chat, delete_task, store_message
 log = logging.getLogger(__name__)
 
 TG_MAX_MSG = 4096
-DRAFT_INTERVAL = 1.0  # min seconds between draft updates
 
 
 def _split_message(text: str) -> list[str]:
@@ -52,13 +51,12 @@ def create_bot(queue: ChatQueue) -> Application:
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     async def cmd_ping(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text("JARVIS online, Sir.")
+        await update.message.reply_text("FRIDAY online, Boss.")
 
     async def cmd_chatid(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Chat ID: `{update.effective_chat.id}`", parse_mode="Markdown")
 
     async def cmd_tasks(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-        """List active tasks: /tasks"""
         if not _is_allowed(update.effective_chat.id):
             return
         tasks = get_tasks_for_chat(update.effective_chat.id)
@@ -71,7 +69,6 @@ def create_bot(queue: ChatQueue) -> Application:
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
     async def cmd_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-        """Cancel a task: /cancel <task_id>"""
         if not _is_allowed(update.effective_chat.id):
             return
         task_id = update.message.text.partition(" ")[2].strip()
@@ -83,7 +80,6 @@ def create_bot(queue: ChatQueue) -> Application:
         else:
             await update.message.reply_text(f"Task `{task_id}` not found.", parse_mode="Markdown")
 
-    # User ID for the owner (only respond to this user in groups)
     OWNER_ID = 72911340
 
     async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -100,7 +96,6 @@ def create_bot(queue: ChatQueue) -> Application:
         is_group = msg.chat.type in ("group", "supergroup")
         text = msg.text or msg.caption or ""
 
-        # In groups: observe all messages, only respond to owner
         if is_group:
             sender_name = msg.from_user.first_name if msg.from_user else "Unknown"
             sender_id = msg.from_user.id if msg.from_user else 0
@@ -120,14 +115,13 @@ def create_bot(queue: ChatQueue) -> Application:
         sender = msg.from_user.first_name if msg.from_user else "Someone"
         full_prompt = f"[Telegram from {sender}]: {prompt}"
 
-        # Store incoming message
         ts = msg.date.isoformat() if msg.date else ""
-        if not is_group:  # group messages already stored above
+        if not is_group:
             store_message(chat_id, sender, msg.from_user.id if msg.from_user else 0, text, ts)
 
         log.info("Processing message from %s in chat %s", sender, chat_id)
 
-        # Send typing indicator while container spins up and processes
+        # Typing indicator while container processes — IPC delivers the response
         typing_active = True
         async def _typing_loop():
             while typing_active:
@@ -139,36 +133,20 @@ def create_bot(queue: ChatQueue) -> Application:
 
         typing_task = asyncio.create_task(_typing_loop())
 
-        draft_id = int(time.time() * 1000) % (2**31 - 1) or 1
-        accumulated = ""
-        last_draft = 0.0
-
+        # Consume container output silently — it's internal dialogue
+        internal_log = []
         async for line in stream_from_container(full_prompt, chat_id):
-            accumulated = (accumulated + "\n" + line).strip() if accumulated else line
-            now = time.monotonic()
-            if is_private and now - last_draft >= DRAFT_INTERVAL:
-                try:
-                    draft_text = accumulated[-TG_MAX_MSG:]
-                    await ctx.bot.send_message_draft(chat_id, draft_id, draft_text, parse_mode="Markdown")
-                    last_draft = now
-                except Exception as e:
-                    log.debug("Draft send failed: %s", e)
+            internal_log.append(line)
+            log.debug("[CONTAINER] %s", line)
 
         typing_active = False
         typing_task.cancel()
 
-        if not accumulated:
-            accumulated = "No response from container."
+        # Log full internal dialogue for debugging
+        if internal_log:
+            log.info("[INTERNAL] %d lines from container (not sent to Telegram)", len(internal_log))
 
-        for chunk in _split_message(accumulated):
-            try:
-                await msg.reply_text(chunk, parse_mode="Markdown")
-            except Exception:
-                await msg.reply_text(chunk)
-
-        # Store bot response
-        from datetime import datetime, timezone
-        store_message(chat_id, "JARVIS", 0, accumulated, datetime.now(timezone.utc).isoformat(), is_bot=True)
+        # Response is delivered via IPC (jarvis-send) — nothing to send here
 
     app.add_handler(CommandHandler("ping", cmd_ping))
     app.add_handler(CommandHandler("chatid", cmd_chatid))
