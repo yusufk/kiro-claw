@@ -39,17 +39,12 @@ def write_output(status, result=None, error=None):
 
 
 def _patch_mempalace_config():
-    """Rewrite Mac paths in mempalace config to container paths."""
-    cfg_path = os.path.expanduser("~/.mempalace/config.json")
-    if not os.path.exists(cfg_path):
-        return
-    try:
-        raw = open(cfg_path).read()
-        patched = raw.replace("/Users/yusuf/.mempalace/palace", "/home/node/.mempalace/palace")
-        if patched != raw:
-            open(cfg_path, "w").write(patched)
-    except Exception:
-        pass
+    """Create a container-local mempalace config pointing to the mounted palace data."""
+    cfg_dir = os.path.expanduser("~/.mempalace")
+    os.makedirs(cfg_dir, exist_ok=True)
+    cfg = {"palace_path": "/home/node/.mempalace/palace", "collection_name": "mempalace_drawers"}
+    with open(os.path.join(cfg_dir, "config.json"), "w") as f:
+        json.dump(cfg, f)
 
 
 def handle(data):
