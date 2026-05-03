@@ -39,7 +39,7 @@ A Telegram bot that bridges messages to [JARVIS](https://cli.kiro.dev/) (Kiro CL
                                                │
                           ┌────────────────────────────────────────────┐
                           │  Home Assistant (cappucino)                │
-                          │  rest_command → http://macbook:8099/event  │
+                          │  rest_command → http://127.0.0.1:8099     │
                           └────────────────────────────────────────────┘
 ```
 
@@ -61,7 +61,7 @@ A Telegram bot that bridges messages to [JARVIS](https://cli.kiro.dev/) (Kiro CL
 - **Secret redaction** — all MCP secret values are pattern-matched and stripped from output before delivery to Telegram.
 - **Streaming** — `sendMessageDraft` (Bot API 9.3) streams partial responses live in Telegram.
 
-## Quick Start
+## Quick Start (macOS)
 
 ```bash
 git clone https://github.com/yusufk/kiro-claw.git
@@ -72,6 +72,86 @@ docker build -t kiro-claw-agent container/
 ./kiro-claw.sh start        # start the bot
 ./kiro-claw.sh logs         # watch output
 ```
+
+## Quick Start (Linux / Server Deployment)
+
+For always-on deployment on a Linux server (e.g. cappucino):
+
+```bash
+git clone https://github.com/yusufk/kiro-claw.git
+cd kiro-claw
+python3 -m venv .venv
+.venv/bin/pip install python-telegram-bot[ext] python-dotenv croniter aiohttp
+cp .env.example .env        # edit with your tokens + Linux paths
+docker build -t kiro-claw-agent container/
+```
+
+**Key `.env` differences for Linux:**
+- `BRAIN_DIR=/home/yusuf/Documents/Obsidian/Yusufs Vault/AI brain` (not `/Users/...`)
+- `PROJECTS=/home/yusuf/Development/dha-slot-sniper` (Linux paths)
+
+**kiro-claw.sh** uses pyenv paths by default (macOS). On Linux, patch them:
+```bash
+sed -i 's|/Users/yusuf/.pyenv/shims/python3|.venv/bin/python3|g' kiro-claw.sh
+sed -i 's|/Users/yusuf/.pyenv/versions/3.12.8/bin/python|.venv/bin/python3|g' kiro-claw.sh
+```
+
+### Auto-start with systemd
+
+```bash
+sudo cp /tmp/kiro-claw.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable kiro-claw
+sudo systemctl start kiro-claw
+```
+
+Service file (`/etc/systemd/system/kiro-claw.service`):
+```ini
+[Unit]
+Description=Kiro-Claw Telegram Bot (FRIDAY)
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=yusuf
+WorkingDirectory=/home/yusuf/Development/kiro-claw
+ExecStart=/home/yusuf/Development/kiro-claw/.venv/bin/python3 -m src.main
+ExecStop=/usr/bin/docker kill kiroclaw-agent
+Restart=on-failure
+RestartSec=10
+Environment=PATH=/home/yusuf/Development/kiro-claw/.venv/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Manage with systemd:
+```bash
+sudo systemctl status kiro-claw    # check status
+sudo systemctl restart kiro-claw   # restart
+sudo journalctl -u kiro-claw -f    # live logs
+```
+
+### Remote deploy from macOS
+
+A deploy script is included for pushing updates from macbook:
+```bash
+./deploy-cappucino.sh    # pushes code, syncs auth, rebuilds, restarts
+```
+
+### Home Assistant webhook
+
+When kiro-claw runs on the same machine as HA, update `rest_command` in HA's `configuration.yaml` to use `127.0.0.1`:
+
+```yaml
+rest_command:
+  jarvis_event:
+    url: "http://127.0.0.1:8099/event"   # localhost when co-located
+    ...
+```
+
+Then restart HA core: `ha core restart`
 
 ## Management
 
