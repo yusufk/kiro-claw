@@ -133,20 +133,21 @@ def create_bot(queue: ChatQueue) -> Application:
 
         typing_task = asyncio.create_task(_typing_loop())
 
-        # Consume container output silently — it's internal dialogue
-        internal_log = []
+        # Collect container output and send to Telegram
+        lines = []
         async for line in stream_from_container(full_prompt, chat_id):
-            internal_log.append(line)
-            log.debug("[CONTAINER] %s", line)
+            lines.append(line)
 
         typing_active = False
         typing_task.cancel()
 
-        # Log full internal dialogue for debugging
-        if internal_log:
-            log.info("[INTERNAL] %d lines from container (not sent to Telegram)", len(internal_log))
-
-        # Response is delivered via IPC (jarvis-send) — nothing to send here
+        response = "\n".join(lines).strip()
+        if response:
+            for chunk in _split_message(response):
+                try:
+                    await ctx.bot.send_message(chat_id, chunk, parse_mode="Markdown")
+                except Exception:
+                    await ctx.bot.send_message(chat_id, chunk)
 
     app.add_handler(CommandHandler("ping", cmd_ping))
     app.add_handler(CommandHandler("chatid", cmd_chatid))
