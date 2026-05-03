@@ -88,8 +88,8 @@ async def _ensure_container():
     cmd.insert(-1, "-v")
     cmd.insert(-1, f"{_scratch_dir}:/workspace/scratch:rw")
 
-    # Mount mempalace data (palace DB + knowledge graph, NOT config.json)
-    _mempalace_dir = Path.home() / ".mempalace"
+    # Mount mempalace data (FRIDAY's own copy — separate from JARVIS)
+    _mempalace_dir = Path.home() / ".mempalace-friday"
     if _mempalace_dir.exists():
         cmd.insert(-1, "-v")
         cmd.insert(-1, f"{_mempalace_dir / 'palace'}:/home/node/.mempalace/palace:rw")
