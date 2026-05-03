@@ -92,11 +92,7 @@ async def _ensure_container():
     _mempalace_dir = Path.home() / ".mempalace-friday"
     if _mempalace_dir.exists():
         cmd.insert(-1, "-v")
-        cmd.insert(-1, f"{_mempalace_dir / 'palace'}:/home/node/.mempalace/palace:rw")
-        _kg = _mempalace_dir / "knowledge_graph.sqlite3"
-        if _kg.exists():
-            cmd.insert(-1, "-v")
-            cmd.insert(-1, f"{_kg}:/home/node/.mempalace/knowledge_graph.sqlite3:rw")
+        cmd.insert(-1, f"{_mempalace_dir}:/home/node/.mempalace:rw")
 
     for entry in EXTRA_HOSTS.split(","):
         entry = entry.strip()
