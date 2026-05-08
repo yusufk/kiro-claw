@@ -88,11 +88,6 @@ async def _ensure_container():
     cmd.insert(-1, "-v")
     cmd.insert(-1, f"{_scratch_dir}:/workspace/scratch:rw")
 
-    # Mount mempalace data (FRIDAY's own copy — separate from JARVIS)
-    _mempalace_dir = Path.home() / ".mempalace-friday"
-    if _mempalace_dir.exists():
-        cmd.insert(-1, "-v")
-        cmd.insert(-1, f"{_mempalace_dir}:/home/node/.mempalace:rw")
 
     for entry in EXTRA_HOSTS.split(","):
         entry = entry.strip()

@@ -38,15 +38,6 @@ def write_output(status, result=None, error=None):
     print(f"{OUTPUT_START}\n{msg}\n{OUTPUT_END}", flush=True)
 
 
-def _patch_mempalace_config():
-    """Create a container-local mempalace config pointing to the mounted palace data."""
-    cfg_dir = os.path.expanduser("~/.mempalace")
-    os.makedirs(cfg_dir, exist_ok=True)
-    cfg = {"palace_path": "/home/node/.mempalace/palace", "collection_name": "mempalace_drawers"}
-    with open(os.path.join(cfg_dir, "config.json"), "w") as f:
-        json.dump(cfg, f)
-
-
 def handle(data):
     prompt = data.get("prompt", "")
     agent = data.get("agent", "JARVIS")
@@ -85,7 +76,6 @@ def handle(data):
 
 def main():
     _patch_agent_configs()
-    _patch_mempalace_config()
     print("KIROCLAW_READY", flush=True)
     for line in sys.stdin:
         line = line.strip()

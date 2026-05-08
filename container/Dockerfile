@@ -20,10 +20,8 @@ RUN uv tool install mcp-proxy \
 # Pre-cache playwright MCP for npx
 RUN npx -y @playwright/mcp@latest --help 2>/dev/null || true
 
-# Install mempalace for semantic memory (force source build for old CPUs without AVX)
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential python3-dev && \
-    HNSWLIB_NO_NATIVE=1 pip install --no-binary chromadb,chroma-hnswlib --break-system-packages mempalace && \
-    apt-get purge -y build-essential python3-dev && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+# Pre-cache memory MCP server (JSON knowledge graph — no native deps)
+RUN npx -y @modelcontextprotocol/server-memory --help 2>/dev/null || true
 
 # Create workspace dirs
 RUN mkdir -p /workspace/brain /workspace/scratch /workspace/ipc /home/node/.kiro \
