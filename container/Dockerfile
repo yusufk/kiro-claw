@@ -20,8 +20,13 @@ RUN uv tool install mcp-proxy \
 # Pre-cache playwright MCP for npx
 RUN npx -y @playwright/mcp@latest --help 2>/dev/null || true
 
-# Pre-cache memory MCP server (JSON knowledge graph — no native deps)
-RUN npx -y @modelcontextprotocol/server-memory --help 2>/dev/null || true
+# Memory provider: "memory" (JSON graph, works everywhere) or "mempalace" (semantic search, needs AVX CPU)
+ARG MEMORY_PROVIDER=memory
+RUN if [ "$MEMORY_PROVIDER" = "mempalace" ]; then \
+      pip install --break-system-packages mempalace; \
+    else \
+      npx -y @modelcontextprotocol/server-memory --help 2>/dev/null || true; \
+    fi
 
 # Create workspace dirs
 RUN mkdir -p /workspace/brain /workspace/scratch /workspace/ipc /home/node/.kiro \

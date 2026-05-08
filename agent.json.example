@@ -45,12 +45,16 @@
         "--headless"
       ]
     },
-    "mempalace": {
-      "command": "python3",
+    "memory": {
+      "_comment": "Option A: JSON knowledge graph (works on any CPU, no native deps)",
+      "command": "npx",
       "args": [
-        "-m",
-        "mempalace.mcp_server"
-      ]
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ],
+      "env": {
+        "MEMORY_FILE_PATH": "/workspace/brain/memory.json"
+      }
     }
   },
   "tools": [

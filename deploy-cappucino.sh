@@ -38,8 +38,9 @@ fi
 .venv/bin/pip install -q python-telegram-bot[ext] python-dotenv croniter aiohttp
 
 echo "--- Building Docker image ---"
+source .env 2>/dev/null || true
 cd container
-docker build -t kiro-claw-agent:latest .
+docker build --build-arg MEMORY_PROVIDER="${MEMORY_PROVIDER:-memory}" -t kiro-claw-agent:latest .
 cd ..
 
 echo "--- Fixing kiro-claw.sh for Linux ---"
