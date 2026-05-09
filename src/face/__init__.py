@@ -108,7 +108,7 @@ class TUIFace:
         return animated
 
     def render(self, dt=0.05):
-        """Render one frame, return as list of strings."""
+        """Render one frame as scattered particle cloud (Viki style)."""
         self.t += dt
 
         # Blink logic
@@ -116,7 +116,7 @@ class TUIFace:
         if self.blink_timer <= 0:
             if self.is_blinking:
                 self.is_blinking = False
-                self.blink_timer = 2.5 + math.sin(self.t) * 1.5  # next blink in 1-4s
+                self.blink_timer = 2.5 + math.sin(self.t) * 1.5
             else:
                 self.is_blinking = True
                 self.blink_timer = self.blink_duration
@@ -124,42 +124,56 @@ class TUIFace:
         # Animate points
         points = self._apply_animation(FACE_POINTS, self.t)
 
-        # Render to braille grid
-        # Each braille char represents a 2x4 pixel area
+        # Generate scattered particles around each landmark
+        import random
+        random.seed(42)  # deterministic scatter pattern
+        particles = []
+        for i, (x, y) in enumerate(points):
+            # More particles near eyes and mouth for definition
+            density = 3
+            if 27 <= i <= 38:  # eyes
+                density = 5
+            elif 48 <= i <= 59:  # mouth
+                density = 4
+            elif 17 <= i <= 26:  # eyebrows
+                density = 4
+
+            for _ in range(density):
+                # Scatter with slight animation
+                scatter_x = (random.random() - 0.5) * 0.04
+                scatter_y = (random.random() - 0.5) * 0.04
+                # Add time-based drift
+                drift_x = math.sin(self.t * 0.3 + i * 0.7 + random.random()) * 0.008
+                drift_y = math.cos(self.t * 0.4 + i * 0.5 + random.random()) * 0.008
+                px = x + scatter_x + drift_x
+                py = y + scatter_y + drift_y
+                particles.append((px, py))
+
+        # Render to braille grid — single dots, not clusters
         px_w = self.width * 2
         px_h = self.height * 4
         grid = [[False] * px_w for _ in range(px_h)]
 
-        for (x, y) in points:
+        for (x, y) in particles:
             px = int(x * px_w)
             py = int(y * px_h)
-            # Draw a small cluster for each point (2x2 for visibility)
-            for dx in range(-1, 2):
-                for dy in range(-1, 2):
-                    nx, ny = px + dx, py + dy
-                    if 0 <= nx < px_w and 0 <= ny < px_h:
-                        grid[ny][nx] = True
+            if 0 <= px < px_w and 0 <= py < px_h:
+                grid[py][px] = True
 
         # Convert grid to braille characters
         lines = []
         for row in range(0, px_h, 4):
             line = ""
             for col in range(0, px_w, 2):
-                dots = []
-                # Map grid positions to braille dot numbers
-                for dy, dot_col in enumerate(range(4)):
-                    for dx, dot_row in enumerate(range(2)):
-                        if row + dy < px_h and col + dx < px_w:
-                            if grid[row + dy][col + dx]:
-                                dots.append(dy * 2 + dx + 1 if dy < 3 else 6 + dx + 1)
-                if dots:
-                    # Manual braille encoding
-                    val = 0
-                    for d in dots:
-                        val |= (1 << [0,1,2,6,3,4,5,7][d-1])
-                    line += chr(BRAILLE_BASE + val)
-                else:
-                    line += " "
+                val = 0
+                # Braille dot mapping: positions in 2x4 cell
+                mapping = [(0,0,0x01), (1,0,0x02), (2,0,0x04), (0,1,0x08),
+                           (1,1,0x10), (2,1,0x20), (3,0,0x40), (3,1,0x80)]
+                for dy, dx, bit in mapping:
+                    if row + dy < px_h and col + dx < px_w:
+                        if grid[row + dy][col + dx]:
+                            val |= bit
+                line += chr(BRAILLE_BASE + val) if val else " "
             lines.append(line)
 
         return lines
