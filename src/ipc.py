@@ -36,8 +36,9 @@ async def _process_file(filepath: Path, send_fn, send_photo_fn=None):
         if msg_type == "message":
             chat_id = data.get("chat_id")
             text = data.get("text")
+            parse_mode = data.get("parse_mode")  # optional: container can specify
             if chat_id and text and _is_allowed(int(chat_id)):
-                await send_fn(int(chat_id), text)
+                await send_fn(int(chat_id), text, parse_mode=parse_mode)
                 log.info("IPC message sent to %s", chat_id)
             else:
                 log.warning("IPC message blocked — invalid or unauthorized chat_id: %s", chat_id)

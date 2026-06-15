@@ -22,6 +22,22 @@ from .db import get_tasks_for_chat, delete_task, store_message
 log = logging.getLogger(__name__)
 
 TG_MAX_MSG = 4096
+_MDV2_ESCAPE = re.compile(r'([_*\[\]()~`>#+\-=|{}.!\\])')
+
+
+def _escape_mdv2(text: str) -> str:
+    """Escape text for MarkdownV2, preserving existing formatting."""
+    return _MDV2_ESCAPE.sub(r'\\\1', text)
+
+
+async def _send_smart(bot, chat_id: int, text: str):
+    """Send with MarkdownV2, fall back to Markdown, then plain text."""
+    for mode in ("MarkdownV2", "Markdown", None):
+        try:
+            await bot.send_message(chat_id, text, parse_mode=mode)
+            return
+        except Exception:
+            continue
 
 
 def _split_message(text: str) -> list[str]:
@@ -144,10 +160,7 @@ def create_bot(queue: ChatQueue) -> Application:
         response = "\n".join(lines).strip()
         if response:
             for chunk in _split_message(response):
-                try:
-                    await ctx.bot.send_message(chat_id, chunk, parse_mode="Markdown")
-                except Exception:
-                    await ctx.bot.send_message(chat_id, chunk)
+                await _send_smart(ctx.bot, chat_id, chunk)
 
     app.add_handler(CommandHandler("ping", cmd_ping))
     app.add_handler(CommandHandler("chatid", cmd_chatid))

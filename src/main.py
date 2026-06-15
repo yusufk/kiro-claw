@@ -26,14 +26,16 @@ def main():
     async def post_init(application):
         bot = application.bot
 
-        async def send_fn(chat_id: int, text: str):
+        async def send_fn(chat_id: int, text: str, parse_mode: str = None):
             MAX = 4096
             chunks = [text[i:i + MAX] for i in range(0, len(text), MAX)]
             for chunk in chunks:
-                try:
-                    await bot.send_message(chat_id, chunk, parse_mode="Markdown")
-                except Exception:
-                    await bot.send_message(chat_id, chunk)
+                for mode in ([parse_mode] if parse_mode else ["MarkdownV2", "Markdown", None]):
+                    try:
+                        await bot.send_message(chat_id, chunk, parse_mode=mode)
+                        break
+                    except Exception:
+                        continue
 
         async def send_photo_fn(chat_id: int, photo_path: str, caption: str = ""):
             try:
