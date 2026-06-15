@@ -21,6 +21,28 @@ log = logging.getLogger(__name__)
 
 IPC_DIR = Path(__file__).parent.parent / "data" / "ipc"
 POLL_INTERVAL = 2  # seconds
+_VENV_PYTHON = Path(__file__).parent.parent / ".venv" / "bin" / "python3"
+
+
+async def _speak(text: str):
+    """TTS via gTTS + pw-play on the Bluetooth speaker."""
+    import asyncio
+    script = f"""
+from gtts import gTTS
+tts = gTTS({text!r}, lang='en')
+tts.save('/tmp/jarvis_tts.mp3')
+"""
+    proc = await asyncio.create_subprocess_exec(
+        str(_VENV_PYTHON), "-c", script,
+        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+    )
+    await proc.wait()
+    if proc.returncode == 0:
+        play = await asyncio.create_subprocess_exec(
+            "pw-play", "/tmp/jarvis_tts.mp3",
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+        )
+        await play.wait()
 
 
 def _is_allowed(chat_id: int) -> bool:
@@ -68,6 +90,12 @@ async def _process_file(filepath: Path, send_fn, send_photo_fn=None):
             if chat_id and photo_path and _is_allowed(int(chat_id)):
                 await send_photo_fn(int(chat_id), photo_path, caption)
                 log.info("IPC photo sent to %s: %s", chat_id, photo_path)
+
+        elif msg_type == "speak":
+            text = data.get("text", "")
+            if text:
+                await _speak(text)
+                log.info("IPC speak: %s", text[:60])
 
         else:
             log.warning("Unknown IPC type: %s", msg_type)

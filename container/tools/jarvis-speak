@@ -1,0 +1,17 @@
+#!/bin/sh
+# Usage: jarvis-speak "message to speak aloud"
+# Queues a TTS message via IPC — host plays it on the Bluetooth speaker
+MESSAGE="$1"
+CHAT_ID="${JARVIS_CHAT_ID:-72911340}"
+IPC_DIR="/workspace/ipc"
+
+if [ -z "$MESSAGE" ]; then
+  echo "Usage: jarvis-speak \"message\"" >&2
+  exit 1
+fi
+
+FILENAME="speak-$(date +%s%N).json"
+cat > "$IPC_DIR/$FILENAME" <<EOF
+{"type": "speak", "text": "$MESSAGE", "chat_id": $CHAT_ID}
+EOF
+echo "Queued TTS: $MESSAGE"
