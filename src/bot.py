@@ -115,8 +115,16 @@ def create_bot(queue: ChatQueue) -> Application:
         if is_group:
             sender_name = msg.from_user.first_name if msg.from_user else "Unknown"
             sender_id = msg.from_user.id if msg.from_user else 0
+            is_bot = msg.from_user.is_bot if msg.from_user else False
             ts = msg.date.isoformat() if msg.date else ""
             store_message(chat_id, sender_name, sender_id, text, ts)
+            if is_bot:
+                # Bot-to-bot: HA notifications, images, events — store as context
+                log.info("[BOT MSG] %s: %s", sender_name, text[:200])
+                # Forward photos from HA bot to container as events
+                if msg.photo:
+                    log.info("[BOT PHOTO] %s sent a photo", sender_name)
+                return
             if sender_id != OWNER_ID:
                 log.info("[GROUP OBSERVE] %s: %s", sender_name, text[:200])
                 return
