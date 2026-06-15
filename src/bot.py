@@ -168,7 +168,13 @@ def create_bot(queue: ChatQueue) -> Application:
         response = "\n".join(lines).strip()
         if response:
             for chunk in _split_message(response):
-                await _send_smart(ctx.bot, chat_id, chunk)
+                try:
+                    await ctx.bot.send_message(chat_id, chunk, parse_mode="Markdown")
+                except Exception:
+                    try:
+                        await ctx.bot.send_message(chat_id, chunk)
+                    except Exception:
+                        pass
 
     app.add_handler(CommandHandler("ping", cmd_ping))
     app.add_handler(CommandHandler("chatid", cmd_chatid))
