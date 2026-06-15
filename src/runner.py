@@ -26,6 +26,7 @@ if _local_kiro_data.exists():
     KIRO_DATA = _local_kiro_data
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+_AUTH_URL_RE = re.compile(r"(https?://\S*(device|authorize|verify|sso|oidc)\S*)", re.IGNORECASE)
 
 # Build redaction patterns from MCP secrets at import time
 _REDACT_PATTERNS: list[re.Pattern] = []
@@ -193,7 +194,12 @@ async def _read_stream():
         if capturing and text.startswith("STREAM:"):
             cleaned = _clean(text[7:])
             if cleaned:
-                yield cleaned
+                # Detect auth URLs and yield them prominently
+                auth_match = _AUTH_URL_RE.search(cleaned)
+                if auth_match:
+                    yield f"🔑 Auth required — open this link:\n\n{auth_match.group(1)}"
+                else:
+                    yield cleaned
 
 
 async def _kill_container():

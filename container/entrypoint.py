@@ -11,6 +11,61 @@ OUTPUT_START = "---KIROCLAW_OUTPUT_START---"
 OUTPUT_END = "---KIROCLAW_OUTPUT_END---"
 
 _ENV_PLACEHOLDER = re.compile(r"__ENV:(\w+)__")
+_AUTH_URL_RE = re.compile(r"(https?://\S*(device|authorize|verify|sso|oidc)\S*)", re.IGNORECASE)
+
+
+def _check_auth_url(line: str):
+    """If line contains an auth/device-flow URL, send it to Telegram via IPC."""
+    match = _AUTH_URL_RE.search(line)
+    if not match:
+        return
+    url = match.group(1)
+    _send_auth_ipc(f"🔑 Auth required — open this link:\n\n{url}")
+
+
+def _send_auth_ipc(text: str):
+    """Write an IPC message to Telegram."""
+    chat_id = os.environ.get("JARVIS_CHAT_ID", "")
+    if not chat_id:
+        return
+    ipc_dir = "/workspace/ipc"
+    if not os.path.isdir(ipc_dir):
+        return
+    import time
+    msg = json.dumps({"type": "message", "chat_id": int(chat_id), "text": text})
+    fpath = os.path.join(ipc_dir, f"auth-{int(time.time() * 1000)}.json")
+    with open(fpath, "w") as f:
+        f.write(msg)
+
+
+def _do_device_flow_login():
+    """Run kiro-cli login --use-device-flow and send the URL to Telegram."""
+    import time
+    print("STREAM:Auth expired — starting device flow login...", flush=True)
+    proc = subprocess.Popen(
+        ["kiro-cli", "login", "--use-device-flow"],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    # Read output looking for the URL (arrives in first few seconds)
+    deadline = time.time() + 15
+    for line in proc.stdout:
+        stripped = line.strip()
+        if "awsapps.com" in stripped or "user_code" in stripped:
+            _send_auth_ipc(f"🔑 Auth required:\n\n{stripped}")
+        match = _AUTH_URL_RE.search(stripped)
+        if match:
+            _send_auth_ipc(f"🔑 Open this link to authenticate FRIDAY:\n\n{match.group(1)}")
+        if time.time() > deadline:
+            break
+    # Let login continue in background (user will auth on phone)
+    # Don't wait forever — it'll complete when user approves
+    try:
+        proc.wait(timeout=300)
+        if proc.returncode == 0:
+            _send_auth_ipc("✅ Auth successful — FRIDAY back online.")
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        _send_auth_ipc("⚠️ Auth timed out — try sending a message again.")
 
 
 def _patch_agent_configs():
@@ -56,12 +111,24 @@ def handle(data):
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         print(OUTPUT_START, flush=True)
+        lines_out = []
         for line in proc.stdout:
-            print(f"STREAM:{line.rstrip()}", flush=True)
+            stripped = line.rstrip()
+            print(f"STREAM:{stripped}", flush=True)
+            lines_out.append(stripped)
+            _check_auth_url(stripped)
         proc.wait(timeout=280)
         stderr = proc.stderr.read().strip()
         if proc.returncode != 0 and stderr:
             print(f"STREAM:{stderr}", flush=True)
+            for errline in stderr.split("\n"):
+                _check_auth_url(errline)
+
+        # Detect auth failure and auto-trigger device flow login
+        all_output = "\n".join(lines_out) + "\n" + (stderr or "")
+        if "Failed to open browser" in all_output or "use-device-flow" in all_output:
+            _do_device_flow_login()
+
         print(OUTPUT_END, flush=True)
     except subprocess.TimeoutExpired:
         proc.kill()
