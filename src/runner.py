@@ -44,6 +44,13 @@ def _clean(text: str) -> str:
     return text.strip()
 
 
+# Lines matching these patterns are tool execution noise — never show to user
+_NOISE_RE = re.compile(
+    r"(Running tool |Completed in \d|^ ⋮|^\s*\{|\^\s*\}|^\s*\"[a-z_]+\":|"
+    r"from mcp server:|with the param)", re.IGNORECASE
+)
+
+
 _proc = None  # Persistent container process
 _lock = asyncio.Lock()
 _first_message = True
@@ -198,7 +205,7 @@ async def _read_stream():
                 auth_match = _AUTH_URL_RE.search(cleaned)
                 if auth_match:
                     yield f"🔑 Auth required — open this link:\n\n{auth_match.group(1)}"
-                else:
+                elif not _NOISE_RE.search(cleaned):
                     yield cleaned
 
 
