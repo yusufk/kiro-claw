@@ -2,7 +2,7 @@
 # Usage: jarvis-speak "message to speak aloud"
 # Queues a TTS message via IPC — host plays it on the Bluetooth speaker
 MESSAGE="$1"
-CHAT_ID="${JARVIS_CHAT_ID:-72911340}"
+CHAT_ID="${JARVIS_CHAT_ID}"
 IPC_DIR="/workspace/ipc"
 
 if [ -z "$MESSAGE" ]; then

@@ -4,9 +4,9 @@
 #   type: cron | interval | once
 #   value: cron expression | milliseconds | ISO datetime
 # Examples:
-#   jarvis-schedule 72911340 cron "0 9 * * *" "Good morning check-in"
-#   jarvis-schedule 72911340 interval 3600000 "Hourly system check"
-#   jarvis-schedule 72911340 once "2026-03-22T10:00" "Remind about meeting"
+#   jarvis-schedule $JARVIS_CHAT_ID cron "0 9 * * *" "Good morning check-in"
+#   jarvis-schedule $JARVIS_CHAT_ID interval 3600000 "Hourly system check"
+#   jarvis-schedule $JARVIS_CHAT_ID once "2026-03-22T10:00" "Remind about meeting"
 
 CHAT_ID="${1:?Usage: jarvis-schedule <chat_id> <type> <value> <prompt>}"
 STYPE="${2:?Schedule type required: cron|interval|once}"
