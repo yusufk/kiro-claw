@@ -1,3 +1,4 @@
+import os
 """Event processor — DEFCON-based filtering + briefings.
 
 DEFCON controls which events reach the JARVIS container:
@@ -23,7 +24,7 @@ from .runner import run_in_container
 log = logging.getLogger(__name__)
 
 POLL_INTERVAL = 5
-DEFAULT_CHAT_ID = 72911340
+DEFAULT_CHAT_ID = int(os.environ.get("JARVIS_CHAT_ID", os.environ.get("OWNER_CHAT_ID", "0")))
 BATCH_WINDOW = 10
 MEMORY_PATH = Path(__file__).parent.parent / "data" / "brain" / "memory.json"
 # Fallback if brain isn't mounted at data/brain

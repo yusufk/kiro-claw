@@ -80,7 +80,7 @@ class TestTasks:
 
 class TestMessages:
     def test_store_and_retrieve(self):
-        db.store_message(123, "Yusuf", 72911340, "hello", "2026-01-01 00:00:00")
+        db.store_message(123, "Yusuf", 12345678, "hello", "2026-01-01 00:00:00")
         db.store_message(123, "JARVIS", 0, "hi sir", "2026-01-01 00:00:01", is_bot=True)
         msgs = db.get_recent_messages(123)
         assert len(msgs) == 2

@@ -1,3 +1,4 @@
+import os
 """Telegram bot — receives messages, dispatches to container, IPC-only responses."""
 
 import asyncio
@@ -96,7 +97,7 @@ def create_bot(queue: ChatQueue) -> Application:
         else:
             await update.message.reply_text(f"Task `{task_id}` not found.", parse_mode="Markdown")
 
-    OWNER_ID = 72911340
+    OWNER_ID = int(os.environ.get("OWNER_CHAT_ID", "0"))
 
     async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         msg = update.message
