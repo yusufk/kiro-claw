@@ -1,0 +1,3 @@
+# This directory contains runtime data (agent.json, kiro-data/, ipc/, scratch/)
+# These files are gitignored but must exist for the service to work.
+# After clone: copy agent.json from secure backup, never commit it.
