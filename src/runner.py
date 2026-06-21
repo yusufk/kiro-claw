@@ -117,6 +117,10 @@ async def _ensure_container():
     with os.fdopen(env_fd, "w") as f:
         for key, val in MCP_SECRETS.items():
             f.write(f"{key}={val}\n")
+        # Pass KIRO_API_KEY for headless auth (no device flow needed)
+        kiro_key = os.environ.get("KIRO_API_KEY", "")
+        if kiro_key:
+            f.write(f"KIRO_API_KEY={kiro_key}\n")
     os.chmod(_env_path, 0o600)
     cmd.insert(-1, "--env-file")
     cmd.insert(-1, _env_path)
