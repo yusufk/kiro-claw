@@ -93,17 +93,6 @@
   "resources": [
     "file:///workspace/brain/**/*.md"
   ],
-  "hooks": {
-    "userPromptSubmit": [
-      {
-        "command": "ls -la"
-      }
-    ],
-    "contextCompact": [
-      {
-        "command": "jarvis-send $JARVIS_CHAT_ID '\ud83e\udde0 Context compacting \u2014 saving memories before compression.'"
-      }
-    ]
-  },
+  "hooks": {},
   "useLegacyMcpJson": true
 }

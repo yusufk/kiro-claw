@@ -43,9 +43,10 @@ case "${1:-start}" in
   restart)
     "$0" stop
     sleep 2
-    # Mine kiro-claw container sessions into MemPalace before restarting
-    /Users/yusuf/.pyenv/versions/3.12.8/bin/python -m mempalace mine \
-      "$DIR/data/kiro-data" --mode convos --wing friday_sessions --agent friday 2>/dev/null || true
+    # NOTE: Do NOT mine kiro sessions here. Mining raw session JSON floods the
+    # palace with tens of thousands of junk chunk-drawers (see jarvis-dream.sh,
+    # 2026-07-25). Mining is owned by the nightly dream script, which mines the
+    # vault (real markdown), not session transcripts.
     "$0" start
     ;;
   status)
