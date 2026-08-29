@@ -8,6 +8,18 @@ LOGFILE="$DIR/data/kiro-claw.log"
 
 mkdir -p "$DIR/data"
 
+# Resolve Python interpreter generically (no hardcoded paths):
+#   1. KIRO_CLAW_PYTHON env var (explicit override)
+#   2. a virtualenv sitting next to the repo ($DIR/.venv)
+#   3. whatever python3 is on PATH
+if [ -n "${KIRO_CLAW_PYTHON:-}" ]; then
+  PYTHON="$KIRO_CLAW_PYTHON"
+elif [ -x "$DIR/.venv/bin/python3" ]; then
+  PYTHON="$DIR/.venv/bin/python3"
+else
+  PYTHON="$(command -v python3)"
+fi
+
 # Ensure agent.json exists (copy from template if missing)
 if [ ! -f "$DIR/data/agent.json" ]; then
   cp "$DIR/agent.json.example" "$DIR/data/agent.json"
@@ -24,7 +36,7 @@ case "${1:-start}" in
     lsof -ti :8099 | xargs kill -9 2>/dev/null || true
     echo "Starting Kiro-Claw..."
     cd "$DIR"
-    nohup .venv/bin/python3 -m src.main >> "$LOGFILE" 2>&1 &
+    nohup "$PYTHON" -m src.main >> "$LOGFILE" 2>&1 &
     echo $! > "$PIDFILE"
     echo "Started (PID $!), logging to $LOGFILE"
     ;;

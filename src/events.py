@@ -20,6 +20,7 @@ from pathlib import Path
 
 from .db import get_unprocessed_events, mark_event_processed, get_events_since
 from .runner import run_in_container
+from .config import BRAIN_DIR
 
 log = logging.getLogger(__name__)
 
@@ -27,8 +28,8 @@ POLL_INTERVAL = 5
 DEFAULT_CHAT_ID = int(os.environ.get("JARVIS_CHAT_ID", os.environ.get("OWNER_CHAT_ID", "0")))
 BATCH_WINDOW = 10
 MEMORY_PATH = Path(__file__).parent.parent / "data" / "brain" / "memory.json"
-# Fallback if brain isn't mounted at data/brain
-MEMORY_ALT = Path("/Users/yusuf/Documents/Obsidian/Yusufs Vault/AI brain/memory.json")
+# Fallback: BRAIN_DIR from env (per-machine), if the brain isn't at data/brain.
+MEMORY_ALT = (Path(BRAIN_DIR) / "memory.json") if BRAIN_DIR else None
 
 _last_briefing_ts: datetime | None = None
 _last_briefing_counts: str | None = None
@@ -37,7 +38,7 @@ _last_briefing_counts: str | None = None
 def _read_defcon() -> int:
     """Read DEFCON level from knowledge graph. Default 5."""
     for p in (MEMORY_PATH, MEMORY_ALT):
-        if not p.exists():
+        if p is None or not p.exists():
             continue
         try:
             for line in p.read_text().splitlines():

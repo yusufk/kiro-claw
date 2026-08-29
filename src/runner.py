@@ -8,7 +8,7 @@ import re
 import tempfile
 from pathlib import Path
 
-from .config import CONTAINER_IMAGE, CONTAINER_TIMEOUT, KIRO_AGENT, BRAIN_DIR, EXTRA_HOSTS, MCP_SECRETS, PROJECTS
+from .config import CONTAINER_IMAGE, CONTAINER_TIMEOUT, KIRO_AGENT, BRAIN_DIR, EXTRA_HOSTS, MCP_SECRETS, PROJECTS, MEMPALACE_VENV, MEMPALACE_PALACE
 
 log = logging.getLogger(__name__)
 
@@ -96,17 +96,20 @@ async def _ensure_container():
     cmd.insert(-1, "-v")
     cmd.insert(-1, f"{_scratch_dir}:/workspace/scratch:rw")
 
-    # Mount mempalace venv + palace for FRIDAY's memory
-    _mempalace_venv = Path("/home/yusuf/.mempalace-venv")
-    _mempalace_palace = Path("/home/yusuf/.mempalace-friday/palace-sqlite")
-    if _mempalace_venv.exists():
+    # Mount mempalace venv + palace for FRIDAY's memory (per-machine, from env).
+    # Paths come from MEMPALACE_VENV / MEMPALACE_PALACE (set in .env); each mount
+    # is skipped when the var is unset or the path is absent, so this is a no-op
+    # on machines without a local mempalace (e.g. the macbook node).
+    _mempalace_venv_env = MEMPALACE_VENV.strip()
+    _mempalace_palace_env = MEMPALACE_PALACE.strip()
+    if _mempalace_venv_env and Path(_mempalace_venv_env).exists():
         cmd.insert(-1, "-v")
-        cmd.insert(-1, f"{_mempalace_venv}:/opt/mempalace-venv:ro")
-        log.info("Mounting mempalace venv")
-    if _mempalace_palace.exists():
+        cmd.insert(-1, f"{_mempalace_venv_env}:/opt/mempalace-venv:ro")
+        log.info("Mounting mempalace venv from %s", _mempalace_venv_env)
+    if _mempalace_palace_env and Path(_mempalace_palace_env).exists():
         cmd.insert(-1, "-v")
-        cmd.insert(-1, f"{_mempalace_palace}:/workspace/mempalace:rw")
-        log.info("Mounting mempalace palace")
+        cmd.insert(-1, f"{_mempalace_palace_env}:/workspace/mempalace:rw")
+        log.info("Mounting mempalace palace from %s", _mempalace_palace_env)
 
     for entry in EXTRA_HOSTS.split(","):
         entry = entry.strip()
