@@ -96,6 +96,17 @@ async def _ensure_container():
     cmd.insert(-1, "-v")
     cmd.insert(-1, f"{_scratch_dir}:/workspace/scratch:rw")
 
+    # Mount mempalace venv + palace for FRIDAY's memory
+    _mempalace_venv = Path("/home/yusuf/.mempalace-venv")
+    _mempalace_palace = Path("/home/yusuf/.mempalace-friday/palace-sqlite")
+    if _mempalace_venv.exists():
+        cmd.insert(-1, "-v")
+        cmd.insert(-1, f"{_mempalace_venv}:/opt/mempalace-venv:ro")
+        log.info("Mounting mempalace venv")
+    if _mempalace_palace.exists():
+        cmd.insert(-1, "-v")
+        cmd.insert(-1, f"{_mempalace_palace}:/workspace/mempalace:rw")
+        log.info("Mounting mempalace palace")
 
     for entry in EXTRA_HOSTS.split(","):
         entry = entry.strip()

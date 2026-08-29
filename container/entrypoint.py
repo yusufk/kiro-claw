@@ -103,7 +103,7 @@ def handle(data):
     if chat_id:
         os.environ["JARVIS_CHAT_ID"] = str(chat_id)
 
-    cmd = ["kiro-cli", "chat", "--agent", agent, "--no-interactive", "--trust-all-tools", "--require-mcp-startup"]
+    cmd = ["kiro-cli", "chat", "--agent", agent, "--no-interactive", "--trust-all-tools"]
     if resume:
         cmd.append("--resume")
     cmd.append(prompt)

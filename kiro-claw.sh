@@ -24,7 +24,7 @@ case "${1:-start}" in
     lsof -ti :8099 | xargs kill -9 2>/dev/null || true
     echo "Starting Kiro-Claw..."
     cd "$DIR"
-    nohup /Users/yusuf/.pyenv/shims/python3 -m src.main >> "$LOGFILE" 2>&1 &
+    nohup .venv/bin/python3 -m src.main >> "$LOGFILE" 2>&1 &
     echo $! > "$PIDFILE"
     echo "Started (PID $!), logging to $LOGFILE"
     ;;
