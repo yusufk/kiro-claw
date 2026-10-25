@@ -75,6 +75,10 @@ async def _ensure_container():
     cmd = [
         "docker", "run", "--rm", "-i",
         "--name", CONTAINER_NAME,
+        # FRIDAY lives in Johannesburg — give the container SAST so its clock,
+        # `date`, and any time-of-day reasoning match the user's local time.
+        # (Fixes the 2026-10-24 night-watch bug where FRIDAY compared against UTC.)
+        "-e", "TZ=Africa/Johannesburg",
         "-v", f"{_AGENT_CONFIG}:/home/node/.kiro/agents/{KIRO_AGENT}.json:rw",
         "-v", f"{KIRO_DATA}:/home/node/.local/share/kiro-cli:rw",
         CONTAINER_IMAGE,
