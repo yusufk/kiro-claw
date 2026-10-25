@@ -1,6 +1,7 @@
 """SQLite database — messages, events, tasks."""
 
 import sqlite3
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent.parent / "data" / "kiro-claw.db"
@@ -84,6 +85,43 @@ def delete_task(task_id: str) -> bool:
     cur = db.execute("DELETE FROM tasks WHERE id=?", (task_id,))
     db.commit()
     return cur.rowcount > 0
+
+
+def cancel_task(task_id: str) -> bool:
+    """Soft-cancel: mark a task inactive so the scheduler stops picking it up.
+
+    Preferred over delete_task for recurring tasks — it survives races (the row
+    stays for audit) and the scheduler re-checks status immediately before running.
+    """
+    db = _conn()
+    cur = db.execute(
+        "UPDATE tasks SET status='cancelled' WHERE id=? AND status='active'", (task_id,)
+    )
+    db.commit()
+    return cur.rowcount > 0
+
+
+def get_task(task_id: str) -> dict | None:
+    db = _conn()
+    row = db.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def count_recent_runs(task_id: str, within_seconds: int) -> int:
+    """How many times this task has run in the last `within_seconds`.
+
+    Used by the scheduler's runaway-loop guard to auto-disable tasks that fire
+    far too often (e.g. a mis-scheduled interval no-op guard).
+    """
+    db = _conn()
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=within_seconds)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    row = db.execute(
+        "SELECT COUNT(*) AS n FROM task_runs WHERE task_id=? AND run_at >= ?",
+        (task_id, cutoff),
+    ).fetchone()
+    return int(row["n"]) if row else 0
 
 
 def update_after_run(task_id: str, next_run: str | None, result: str | None):

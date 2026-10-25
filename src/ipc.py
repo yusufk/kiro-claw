@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .config import ALLOWED_CHAT_IDS
 from .scheduler import schedule_task
-from .db import delete_task
+from .db import cancel_task
 
 log = logging.getLogger(__name__)
 
@@ -77,8 +77,10 @@ async def _process_file(filepath: Path, send_fn, send_photo_fn=None):
                 log.info("IPC task created: %s", task_id)
 
         elif msg_type == "cancel_task":
-            if delete_task(data["task_id"]):
+            if cancel_task(data["task_id"]):
                 log.info("IPC task cancelled: %s", data["task_id"])
+            else:
+                log.info("IPC cancel_task no-op (already inactive/unknown): %s", data["task_id"])
 
         elif msg_type == "photo":
             chat_id = data.get("chat_id")

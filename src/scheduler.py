@@ -8,12 +8,31 @@ from datetime import datetime, timezone, timedelta
 
 from croniter import croniter
 
-from .db import create_task, get_due_tasks, update_after_run, log_run, delete_task, get_tasks_for_chat
+from .db import (
+    create_task,
+    get_due_tasks,
+    update_after_run,
+    log_run,
+    delete_task,
+    get_tasks_for_chat,
+    get_task,
+    cancel_task,
+    count_recent_runs,
+)
 from .runner import run_in_container
 
 log = logging.getLogger(__name__)
 
 POLL_INTERVAL = 30  # seconds
+
+# --- Runaway-loop guard ---
+# Minimum sane interval for repeating tasks. Anything shorter is clamped up —
+# the container takes ~10-55s per run, so sub-minute intervals never make sense.
+MIN_INTERVAL_MS = 5 * 60 * 1000  # 5 minutes
+# If a task runs more than this many times inside the window, it's looping —
+# auto-disable it rather than let it hammer the container indefinitely.
+RUNAWAY_MAX_RUNS = 12
+RUNAWAY_WINDOW_SECONDS = 3 * 60 * 60  # 3 hours
 
 
 def _to_sqlite_utc(ts: str) -> str:
@@ -38,6 +57,21 @@ def _next_run(schedule_type: str, schedule_value: str) -> str | None:
 def schedule_task(chat_id: int, prompt: str, schedule_type: str, schedule_value: str) -> str:
     """Create a scheduled task. Returns task ID."""
     task_id = f"task-{uuid.uuid4().hex[:8]}"
+
+    # Clamp absurdly short intervals — the container needs ~10-55s per run, so
+    # anything under MIN_INTERVAL_MS just backlogs the scheduler and burns cycles.
+    if schedule_type == "interval":
+        try:
+            ms = int(schedule_value)
+            if ms < MIN_INTERVAL_MS:
+                log.warning(
+                    "Interval %dms for task is below floor; clamping to %dms",
+                    ms, MIN_INTERVAL_MS,
+                )
+                schedule_value = str(MIN_INTERVAL_MS)
+        except (ValueError, TypeError):
+            pass
+
     if schedule_type == "once":
         # Validate it's a real timestamp, not a bare number
         try:
@@ -68,6 +102,28 @@ def schedule_task(chat_id: int, prompt: str, schedule_type: str, schedule_value:
 
 async def _run_task(task: dict, send_fn):
     """Execute a single task and send the result to Telegram."""
+    # Runaway-loop guard: if a repeating task has fired too many times recently,
+    # it's almost certainly a mis-scheduled no-op loop (see the 2026-10-24
+    # night-alarm-watch incident). Auto-disable and tell Boss once.
+    if task["schedule_type"] in ("interval", "cron"):
+        recent = count_recent_runs(task["id"], RUNAWAY_WINDOW_SECONDS)
+        if recent >= RUNAWAY_MAX_RUNS:
+            cancel_task(task["id"])
+            log.error(
+                "Runaway task %s auto-disabled: %d runs in %dh. Prompt: %s",
+                task["id"], recent, RUNAWAY_WINDOW_SECONDS // 3600, task["prompt"][:80],
+            )
+            try:
+                await send_fn(
+                    task["chat_id"],
+                    f"⚠️ Auto-disabled a runaway scheduled task ({task['id']}): "
+                    f"it fired {recent} times in {RUNAWAY_WINDOW_SECONDS // 3600}h. "
+                    f"Likely a mis-scheduled loop, not a real alert. Stopping it.",
+                )
+            except Exception:
+                pass
+            return
+
     start = time.monotonic()
     try:
         result = await run_in_container(task["prompt"], task["chat_id"])
@@ -99,6 +155,14 @@ async def scheduler_loop(send_fn):
             if due:
                 log.info("Found %d due task(s)", len(due))
             for task in due:
+                # Re-check status right before running — a cancel_task that landed
+                # during this batch (e.g. via IPC) must be honored, closing the
+                # long-standing "I tried to cancel it but it ran anyway" race.
+                current = get_task(task["id"])
+                if not current or current["status"] != "active":
+                    log.info("Skipping %s — no longer active (%s)",
+                             task["id"], current["status"] if current else "deleted")
+                    continue
                 await _run_task(task, send_fn)
         except Exception as e:
             log.error("Scheduler error: %s", e)
