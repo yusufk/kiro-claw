@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 
 from aiohttp import web
 
@@ -17,6 +18,28 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
 )
+
+# httpx logs every request URL at INFO, and Telegram Bot API URLs embed the
+# bot token (/bot<id>:<secret>/...). Keep those loggers quiet...
+for _noisy in ("httpx", "httpcore"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+
+
+class RedactTokenFilter(logging.Filter):
+    """...and mask any bot token that still reaches a log line (e.g. in errors)."""
+
+    _pattern = re.compile(r"bot\d+:[A-Za-z0-9_-]{20,}")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        if self._pattern.search(msg):
+            record.msg = self._pattern.sub("bot<redacted>", msg)
+            record.args = None
+        return True
+
+
+for _handler in logging.getLogger().handlers:
+    _handler.addFilter(RedactTokenFilter())
 
 
 def main():
