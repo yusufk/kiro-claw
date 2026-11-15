@@ -9,7 +9,7 @@ import re
 import tempfile
 from pathlib import Path
 
-from .config import CONTAINER_IMAGE, CONTAINER_TIMEOUT, KIRO_AGENT, BRAIN_DIR, EXTRA_HOSTS, MCP_SECRETS, PROJECTS, MEMPALACE_VENV, MEMPALACE_PALACE
+from .config import CONTAINER_IMAGE, CONTAINER_TIMEOUT, KIRO_AGENT, BRAIN_DIR, BRAIN_MOUNTS, EXTRA_HOSTS, MCP_SECRETS, PROJECTS, MEMPALACE_VENV, MEMPALACE_PALACE
 
 log = logging.getLogger(__name__)
 
@@ -92,6 +92,45 @@ def _cleanup_env():
         _env_path = None
 
 
+def _brain_volumes(brain_dir: Path | None, mounts: str) -> list[str]:
+    """Docker -v specs for the brain.
+
+    With no BRAIN_MOUNTS, mount the whole brain read-write (old behaviour).
+    Otherwise mount only the listed paths, so the container cannot read notes
+    it has no business with (2026-11-15: the whole-vault mount exposed family
+    ID numbers to FRIDAY). Paths are relative to brain_dir; a ":ro" suffix makes
+    one read-only. Entries that escape brain_dir or do not exist are skipped,
+    except a missing name with no extension, which is created as a writable
+    directory (for FRIDAY's own notes).
+    """
+    if not brain_dir or not brain_dir.exists():
+        return []
+    if not mounts.strip():
+        return [f"{brain_dir}:/workspace/brain:rw"]
+
+    root = brain_dir.resolve()
+    specs = []
+    for entry in mounts.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        mode = "rw"
+        if entry.endswith(":ro"):
+            entry, mode = entry[:-3].rstrip(), "ro"
+        src = (brain_dir / entry).resolve()
+        if src != root and root not in src.parents:
+            log.warning("BRAIN_MOUNTS entry escapes brain dir, skipped: %s", entry)
+            continue
+        if not src.exists():
+            if Path(entry).suffix:
+                log.warning("BRAIN_MOUNTS entry not found, skipped: %s", entry)
+                continue
+            src.mkdir(parents=True, exist_ok=True)
+        rel = src.relative_to(root).as_posix()
+        specs.append(f"{src}:/workspace/brain/{rel}:{mode}")
+    return specs
+
+
 async def _ensure_container():
     """Start the persistent container if not already running."""
     global _proc, _env_path, _stderr_task
@@ -111,9 +150,9 @@ async def _ensure_container():
         CONTAINER_IMAGE,
     ]
 
-    if _BRAIN_DIR and _BRAIN_DIR.exists():
+    for spec in _brain_volumes(_BRAIN_DIR, BRAIN_MOUNTS):
         cmd.insert(-1, "-v")
-        cmd.insert(-1, f"{_BRAIN_DIR}:/workspace/brain:rw")
+        cmd.insert(-1, spec)
 
     # Mount IPC directory for proactive messaging and task scheduling
     _ipc_dir = _PROJECT_DIR / "data" / "ipc"
