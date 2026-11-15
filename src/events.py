@@ -194,7 +194,7 @@ async def _deliver(prompt: str, event_ids: list[int], what: str) -> bool:
     done after the run succeeds; a failure leaves them pending for retry, up to
     MAX_ATTEMPTS, after which they are parked as failed and logged."""
     try:
-        await run_in_container(prompt, DEFAULT_CHAT_ID)
+        await run_in_container(prompt, DEFAULT_CHAT_ID, raise_errors=True)
     except Exception as e:
         given_up = record_event_failure(event_ids, str(e), MAX_ATTEMPTS)
         log.error("%s failed (%s); %d event(s) will retry, %d given up: %s",

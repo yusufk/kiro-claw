@@ -1,6 +1,7 @@
 """SQLite database — messages, events, tasks."""
 
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -8,9 +9,27 @@ DB_PATH = Path(__file__).parent.parent / "data" / "kiro-claw.db"
 
 
 def _conn() -> sqlite3.Connection:
+    """Open a connection with the schema ensured. Caller must close it;
+    prefer `with _db() as db:` which does that for you."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(str(DB_PATH))
     db.row_factory = sqlite3.Row
+    _init_schema(db)
+    return db
+
+
+@contextmanager
+def _db():
+    """Connection that is always closed. Before 2026-11-15 every helper opened
+    a connection and never closed it; the event poller calls these every 5s."""
+    db = _conn()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def _init_schema(db: sqlite3.Connection):
     db.execute("""CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         chat_id INTEGER NOT NULL,
@@ -58,39 +77,38 @@ def _conn() -> sqlite3.Connection:
         error TEXT
     )""")
     db.commit()
-    return db
 
 
 def create_task(task: dict) -> str:
-    db = _conn()
-    db.execute(
-        "INSERT INTO tasks (id, chat_id, prompt, schedule_type, schedule_value, next_run, status, created_at) "
-        "VALUES (:id, :chat_id, :prompt, :schedule_type, :schedule_value, :next_run, :status, :created_at)",
-        task,
-    )
-    db.commit()
-    return task["id"]
+    with _db() as db:
+        db.execute(
+            "INSERT INTO tasks (id, chat_id, prompt, schedule_type, schedule_value, next_run, status, created_at) "
+            "VALUES (:id, :chat_id, :prompt, :schedule_type, :schedule_value, :next_run, :status, :created_at)",
+            task,
+        )
+        db.commit()
+        return task["id"]
 
 
 def get_due_tasks() -> list[dict]:
-    db = _conn()
-    rows = db.execute(
-        "SELECT * FROM tasks WHERE status='active' AND next_run <= datetime('now')"
-    ).fetchall()
-    return [dict(r) for r in rows]
+    with _db() as db:
+        rows = db.execute(
+            "SELECT * FROM tasks WHERE status='active' AND next_run <= datetime('now')"
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 def get_tasks_for_chat(chat_id: int) -> list[dict]:
-    db = _conn()
-    rows = db.execute("SELECT * FROM tasks WHERE chat_id=? AND status='active'", (chat_id,)).fetchall()
-    return [dict(r) for r in rows]
+    with _db() as db:
+        rows = db.execute("SELECT * FROM tasks WHERE chat_id=? AND status='active'", (chat_id,)).fetchall()
+        return [dict(r) for r in rows]
 
 
 def delete_task(task_id: str) -> bool:
-    db = _conn()
-    cur = db.execute("DELETE FROM tasks WHERE id=?", (task_id,))
-    db.commit()
-    return cur.rowcount > 0
+    with _db() as db:
+        cur = db.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+        db.commit()
+        return cur.rowcount > 0
 
 
 def cancel_task(task_id: str) -> bool:
@@ -99,18 +117,18 @@ def cancel_task(task_id: str) -> bool:
     Preferred over delete_task for recurring tasks — it survives races (the row
     stays for audit) and the scheduler re-checks status immediately before running.
     """
-    db = _conn()
-    cur = db.execute(
-        "UPDATE tasks SET status='cancelled' WHERE id=? AND status='active'", (task_id,)
-    )
-    db.commit()
-    return cur.rowcount > 0
+    with _db() as db:
+        cur = db.execute(
+            "UPDATE tasks SET status='cancelled' WHERE id=? AND status='active'", (task_id,)
+        )
+        db.commit()
+        return cur.rowcount > 0
 
 
 def get_task(task_id: str) -> dict | None:
-    db = _conn()
-    row = db.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
-    return dict(row) if row else None
+    with _db() as db:
+        row = db.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+        return dict(row) if row else None
 
 
 def count_recent_runs(task_id: str, within_seconds: int) -> int:
@@ -119,89 +137,89 @@ def count_recent_runs(task_id: str, within_seconds: int) -> int:
     Used by the scheduler's runaway-loop guard to auto-disable tasks that fire
     far too often (e.g. a mis-scheduled interval no-op guard).
     """
-    db = _conn()
-    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=within_seconds)).strftime(
-        "%Y-%m-%d %H:%M:%S"
-    )
-    row = db.execute(
-        "SELECT COUNT(*) AS n FROM task_runs WHERE task_id=? AND run_at >= ?",
-        (task_id, cutoff),
-    ).fetchone()
-    return int(row["n"]) if row else 0
+    with _db() as db:
+        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=within_seconds)).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        row = db.execute(
+            "SELECT COUNT(*) AS n FROM task_runs WHERE task_id=? AND run_at >= ?",
+            (task_id, cutoff),
+        ).fetchone()
+        return int(row["n"]) if row else 0
 
 
 def update_after_run(task_id: str, next_run: str | None, result: str | None):
-    db = _conn()
-    if next_run:
-        db.execute("UPDATE tasks SET next_run=?, last_result=? WHERE id=?", (next_run, result, task_id))
-    else:
-        db.execute("UPDATE tasks SET status='completed', last_result=? WHERE id=?", (result, task_id))
-    db.commit()
+    with _db() as db:
+        if next_run:
+            db.execute("UPDATE tasks SET next_run=?, last_result=? WHERE id=?", (next_run, result, task_id))
+        else:
+            db.execute("UPDATE tasks SET status='completed', last_result=? WHERE id=?", (result, task_id))
+        db.commit()
 
 
 def log_run(task_id: str, run_at: str, duration_ms: int, status: str, result: str = None, error: str = None):
-    db = _conn()
-    db.execute(
-        "INSERT INTO task_runs (task_id, run_at, duration_ms, status, result, error) VALUES (?,?,?,?,?,?)",
-        (task_id, run_at, duration_ms, status, result, error),
-    )
-    db.commit()
+    with _db() as db:
+        db.execute(
+            "INSERT INTO task_runs (task_id, run_at, duration_ms, status, result, error) VALUES (?,?,?,?,?,?)",
+            (task_id, run_at, duration_ms, status, result, error),
+        )
+        db.commit()
 
 
 # --- Messages ---
 
 def store_message(chat_id: int, sender: str, sender_id: int, content: str, timestamp: str, is_bot: bool = False):
-    db = _conn()
-    db.execute(
-        "INSERT INTO messages (chat_id, sender, sender_id, content, timestamp, is_bot) VALUES (?,?,?,?,?,?)",
-        (chat_id, sender, sender_id, content, timestamp, 1 if is_bot else 0),
-    )
-    db.commit()
+    with _db() as db:
+        db.execute(
+            "INSERT INTO messages (chat_id, sender, sender_id, content, timestamp, is_bot) VALUES (?,?,?,?,?,?)",
+            (chat_id, sender, sender_id, content, timestamp, 1 if is_bot else 0),
+        )
+        db.commit()
 
 
 def get_recent_messages(chat_id: int, limit: int = 50) -> list[dict]:
-    db = _conn()
-    rows = db.execute(
-        "SELECT * FROM messages WHERE chat_id=? ORDER BY timestamp DESC LIMIT ?", (chat_id, limit)
-    ).fetchall()
-    return [dict(r) for r in reversed(rows)]
+    with _db() as db:
+        rows = db.execute(
+            "SELECT * FROM messages WHERE chat_id=? ORDER BY timestamp DESC LIMIT ?", (chat_id, limit)
+        ).fetchall()
+        return [dict(r) for r in reversed(rows)]
 
 
 # --- Events ---
 
 def store_event(source: str, event_type: str, data: str, timestamp: str) -> int:
-    db = _conn()
-    cur = db.execute(
-        "INSERT INTO events (source, event_type, data, timestamp) VALUES (?,?,?,?)",
-        (source, event_type, data, timestamp),
-    )
-    db.commit()
-    return cur.lastrowid
+    with _db() as db:
+        cur = db.execute(
+            "INSERT INTO events (source, event_type, data, timestamp) VALUES (?,?,?,?)",
+            (source, event_type, data, timestamp),
+        )
+        db.commit()
+        return cur.lastrowid
 
 
 def get_unprocessed_events(limit: int = 20) -> list[dict]:
-    db = _conn()
-    rows = db.execute(
-        "SELECT * FROM events WHERE processed=0 ORDER BY timestamp LIMIT ?", (limit,)
-    ).fetchall()
-    return [dict(r) for r in rows]
+    with _db() as db:
+        rows = db.execute(
+            "SELECT * FROM events WHERE processed=0 ORDER BY timestamp LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 EVENT_PENDING, EVENT_DONE, EVENT_FAILED = 0, 1, -1
 
 
 def mark_event_processed(event_id: int):
-    db = _conn()
-    db.execute("UPDATE events SET processed=1 WHERE id=?", (event_id,))
-    db.commit()
+    with _db() as db:
+        db.execute("UPDATE events SET processed=1 WHERE id=?", (event_id,))
+        db.commit()
 
 
 def mark_events_done(event_ids: list[int]):
     if not event_ids:
         return
-    db = _conn()
-    db.executemany("UPDATE events SET processed=1 WHERE id=?", [(i,) for i in event_ids])
-    db.commit()
+    with _db() as db:
+        db.executemany("UPDATE events SET processed=1 WHERE id=?", [(i,) for i in event_ids])
+        db.commit()
 
 
 def record_event_failure(event_ids: list[int], error: str, max_attempts: int) -> list[int]:
@@ -209,34 +227,34 @@ def record_event_failure(event_ids: list[int], error: str, max_attempts: int) ->
     failed (processed=-1) so they stop retrying; returns those ids."""
     if not event_ids:
         return []
-    db = _conn()
-    marks = ",".join("?" * len(event_ids))
-    db.execute(f"UPDATE events SET attempts=attempts+1, last_error=? WHERE id IN ({marks})",
-               (error[:500], *event_ids))
-    rows = db.execute(f"SELECT id FROM events WHERE id IN ({marks}) AND attempts>=?",
-                      (*event_ids, max_attempts)).fetchall()
-    given_up = [r[0] for r in rows]
-    if given_up:
-        db.executemany("UPDATE events SET processed=-1 WHERE id=?", [(i,) for i in given_up])
-    db.commit()
-    return given_up
+    with _db() as db:
+        marks = ",".join("?" * len(event_ids))
+        db.execute(f"UPDATE events SET attempts=attempts+1, last_error=? WHERE id IN ({marks})",
+                   (error[:500], *event_ids))
+        rows = db.execute(f"SELECT id FROM events WHERE id IN ({marks}) AND attempts>=?",
+                          (*event_ids, max_attempts)).fetchall()
+        given_up = [r[0] for r in rows]
+        if given_up:
+            db.executemany("UPDATE events SET processed=-1 WHERE id=?", [(i,) for i in given_up])
+        db.commit()
+        return given_up
 
 
 def get_recent_events(source: str = None, limit: int = 20) -> list[dict]:
-    db = _conn()
-    if source:
-        rows = db.execute(
-            "SELECT * FROM events WHERE source=? ORDER BY timestamp DESC LIMIT ?", (source, limit)
-        ).fetchall()
-    else:
-        rows = db.execute("SELECT * FROM events ORDER BY timestamp DESC LIMIT ?", (limit,)).fetchall()
-    return [dict(r) for r in reversed(rows)]
+    with _db() as db:
+        if source:
+            rows = db.execute(
+                "SELECT * FROM events WHERE source=? ORDER BY timestamp DESC LIMIT ?", (source, limit)
+            ).fetchall()
+        else:
+            rows = db.execute("SELECT * FROM events ORDER BY timestamp DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in reversed(rows)]
 
 
 def get_events_since(since_ts: str) -> list[dict]:
     """Get all events since a given ISO timestamp."""
-    db = _conn()
-    rows = db.execute(
-        "SELECT * FROM events WHERE timestamp >= ? ORDER BY timestamp", (since_ts,)
-    ).fetchall()
-    return [dict(r) for r in rows]
+    with _db() as db:
+        rows = db.execute(
+            "SELECT * FROM events WHERE timestamp >= ? ORDER BY timestamp", (since_ts,)
+        ).fetchall()
+        return [dict(r) for r in rows]

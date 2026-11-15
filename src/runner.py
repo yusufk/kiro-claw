@@ -1,6 +1,7 @@
 """Container runner — manages a persistent Docker container with kiro-cli."""
 
 import asyncio
+import collections
 import json
 import logging
 import os
@@ -55,6 +56,32 @@ _proc = None  # Persistent container process
 _lock = asyncio.Lock()
 _first_message = True
 _env_path = None  # Temp env file for secrets
+_stderr_task = None  # Drains container stderr so the pipe never fills
+_stderr_tail: collections.deque = collections.deque(maxlen=20)
+
+# Hard ceiling on container startup. Before 2026-11-15 the READY wait only had a
+# per-line timeout, so a container that kept printing but never became ready
+# held _lock forever and FRIDAY went silent for 4 hours.
+STARTUP_TIMEOUT = int(os.getenv("STARTUP_TIMEOUT", "90"))
+
+
+class ContainerError(RuntimeError):
+    """The container failed to start, timed out, or died mid-response."""
+
+
+async def _drain_stderr(stream):
+    """Read stderr continuously; keep a short tail for error reports."""
+    try:
+        while True:
+            line = await stream.readline()
+            if not line:
+                return
+            text = _clean(line.decode(errors="replace"))[:500]
+            if text:
+                _stderr_tail.append(text)
+                log.debug("[container stderr] %s", text)
+    except Exception:
+        pass
 
 
 def _cleanup_env():
@@ -67,7 +94,7 @@ def _cleanup_env():
 
 async def _ensure_container():
     """Start the persistent container if not already running."""
-    global _proc, _env_path
+    global _proc, _env_path, _stderr_task
     if _proc and _proc.returncode is None:
         return
 
@@ -143,24 +170,46 @@ async def _ensure_container():
     cmd.insert(-1, "--env-file")
     cmd.insert(-1, _env_path)
 
+    _stderr_tail.clear()
     _proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
+    _stderr_task = asyncio.create_task(_drain_stderr(_proc.stderr))
 
-    # Wait for READY signal, then clean up env file
-    while True:
-        line = await asyncio.wait_for(_proc.stdout.readline(), timeout=30)
-        if b"KIROCLAW_READY" in line:
-            log.info("Container ready")
-            _cleanup_env()
-            return
+    # Wait for READY signal within an overall deadline, then clean up env file
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + STARTUP_TIMEOUT
+    try:
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise ContainerError(f"container not ready after {STARTUP_TIMEOUT}s")
+            try:
+                line = await asyncio.wait_for(_proc.stdout.readline(), timeout=remaining)
+            except asyncio.TimeoutError:
+                raise ContainerError(f"container not ready after {STARTUP_TIMEOUT}s") from None
+            if not line:
+                raise ContainerError("container exited before it was ready")
+            if b"KIROCLAW_READY" in line:
+                log.info("Container ready")
+                _cleanup_env()
+                return
+    except ContainerError as e:
+        tail = " | ".join(list(_stderr_tail)[-5:])
+        log.error("Container startup failed: %s%s", e, f" (stderr: {tail})" if tail else "")
+        await _kill_container()
+        raise
 
 
-async def stream_from_container(prompt: str, chat_id: int):
-    """Async generator — yields cleaned lines as they stream from the container."""
+async def stream_from_container(prompt: str, chat_id: int, raise_errors: bool = False):
+    """Async generator — yields cleaned lines as they stream from the container.
+
+    By default failures are yielded as an apology line (chat UX). With
+    raise_errors=True they raise ContainerError instead, so callers that track
+    delivery (the event processor) can retry rather than count it as done."""
     global _first_message
 
     async with _lock:
@@ -168,6 +217,8 @@ async def stream_from_container(prompt: str, chat_id: int):
             await _ensure_container()
         except Exception as e:
             log.error("Failed to start container: %s", e)
+            if raise_errors:
+                raise ContainerError(f"startup failed: {e}") from e
             yield f"Container startup failed: {e}"
             return
 
@@ -188,17 +239,21 @@ async def stream_from_container(prompt: str, chat_id: int):
         except asyncio.TimeoutError:
             log.warning("Response timed out, killing container")
             await _kill_container()
+            if raise_errors:
+                raise ContainerError("response timed out") from None
             yield "I'm terribly sorry, Sir — I ran out of time processing that request."
         except Exception as e:
             log.error("Container error: %s", e)
             await _kill_container()
+            if raise_errors:
+                raise ContainerError(str(e)) from e
             yield f"Container error: {e}"
 
 
-async def run_in_container(prompt: str, chat_id: int) -> str:
+async def run_in_container(prompt: str, chat_id: int, raise_errors: bool = False) -> str:
     """Non-streaming wrapper — collects all lines into one response."""
     lines = []
-    async for line in stream_from_container(prompt, chat_id):
+    async for line in stream_from_container(prompt, chat_id, raise_errors=raise_errors):
         lines.append(line)
     return "\n".join(lines) or "No response from container."
 
@@ -232,7 +287,7 @@ async def _read_stream():
 
 
 async def _kill_container():
-    global _proc, _first_message
+    global _proc, _first_message, _stderr_task
     _first_message = True
     _cleanup_env()
     try:
@@ -241,7 +296,17 @@ async def _kill_container():
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
-        await p.wait()
+        await asyncio.wait_for(p.wait(), timeout=30)
     except Exception:
         pass
+    # Reap the `docker run` client so it can't linger holding pipes
+    if _proc and _proc.returncode is None:
+        try:
+            _proc.kill()
+            await asyncio.wait_for(_proc.wait(), timeout=10)
+        except Exception:
+            pass
+    if _stderr_task and not _stderr_task.done():
+        _stderr_task.cancel()
+    _stderr_task = None
     _proc = None

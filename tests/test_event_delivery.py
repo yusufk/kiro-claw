@@ -42,7 +42,7 @@ def run_one_pass(monkeypatch, runner):
     """Run the processor loop until it has made one delivery attempt."""
     calls = []
 
-    async def fake_run(prompt, chat_id):
+    async def fake_run(prompt, chat_id, **kwargs):
         calls.append(prompt)
         result = runner(len(calls))
         if isinstance(result, Exception):
@@ -105,7 +105,7 @@ def test_filtered_events_are_marked_done_without_a_run(monkeypatch):
     eid = add()
     calls = []
 
-    async def fake_run(prompt, chat_id):
+    async def fake_run(prompt, chat_id, **kwargs):
         calls.append(prompt)
 
     monkeypatch.setattr(ev, "run_in_container", fake_run)
