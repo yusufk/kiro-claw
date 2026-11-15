@@ -22,7 +22,7 @@ from pathlib import Path
 from .db import (get_unprocessed_events, mark_event_processed, get_events_since,
                  mark_events_done, record_event_failure)
 from .runner import run_in_container
-from .defcon import get_defcon, request_defcon
+from .defcon import get_defcon, request_defcon, last_actor
 
 log = logging.getLogger(__name__)
 
@@ -36,11 +36,16 @@ _last_briefing_counts: str | None = None
 
 
 def _apply_alarm_defcon(alarm_state: str):
-    """Evening arm: at least DEFCON 3 overnight. Morning disarm: back to 5."""
+    """Evening arm: at least DEFCON 3 overnight. Morning disarm: back to 5, but only when
+    the current level was set by the schedule itself. An incident escalation by the agent
+    or a level chosen by Yusuf stays until Yusuf relaxes it."""
     if alarm_state == "armed":
         request_defcon(min(get_defcon(), 3), "system", "alarm armed (evening)")
     elif alarm_state == "disarmed":
-        request_defcon(5, "system", "alarm disarmed (morning)")
+        if last_actor() in ("system", "seed"):
+            request_defcon(5, "system", "alarm disarmed (morning)")
+        else:
+            log.info("Morning disarm: keeping DEFCON %d set by %s", get_defcon(), last_actor())
 
 
 def _auto_defcon() -> int:

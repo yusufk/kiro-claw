@@ -7,7 +7,9 @@ never depends on a model remembering to write it down. Who may change it:
   agent   FRIDAY via jarvis-defcon: escalate only (a lower number). A request to
           relax is rejected, so a confused or manipulated agent cannot quieten the
           house. Only Yusuf or the alarm schedule can relax it.
-  system  The host itself: evening arm sets at least 3, morning disarm resets to 5.
+  system  The host itself: evening arm sets at least 3, morning disarm resets to 5, but
+          only a level the schedule set. A level chosen by Yusuf or escalated by the agent
+          (an incident) survives the morning disarm until Yusuf relaxes it.
 """
 
 import json
@@ -15,7 +17,7 @@ import logging
 from pathlib import Path
 
 from .config import BRAIN_DIR
-from .db import get_state, set_state, add_defcon_history
+from .db import get_state, get_state_actor, set_state, add_defcon_history
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +64,12 @@ def get_defcon() -> int:
     set_state(_KEY, str(level), "seed")
     add_defcon_history(None, level, "system", "seeded from legacy graph" if seed else "default")
     return level
+
+
+def last_actor() -> str | None:
+    """Who set the current level: owner, agent, system or seed."""
+    get_defcon()  # make sure the state row exists
+    return get_state_actor(_KEY)
 
 
 def request_defcon(level, actor: str, reason: str = "") -> tuple[bool, int, str]:

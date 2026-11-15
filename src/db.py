@@ -216,6 +216,13 @@ def get_state(key: str) -> str | None:
         return row[0] if row else None
 
 
+def get_state_actor(key: str) -> str | None:
+    """Who last wrote this state key (e.g. 'owner', 'agent', 'system', 'seed')."""
+    with _db() as db:
+        row = db.execute("SELECT updated_by FROM state WHERE key=?", (key,)).fetchone()
+        return row[0] if row else None
+
+
 def set_state(key: str, value: str, updated_by: str = ""):
     with _db() as db:
         db.execute(

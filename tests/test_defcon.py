@@ -66,10 +66,30 @@ def test_history_records_actor_and_reason():
 def test_alarm_schedule_drives_level():
     events._apply_alarm_defcon("armed")
     assert defcon.get_defcon() == 3
+    events._apply_alarm_defcon("disarmed")    # morning resets a level the schedule set
+    assert defcon.get_defcon() == 5
+
+
+def test_agent_incident_survives_morning_disarm():
+    events._apply_alarm_defcon("armed")
     defcon.request_defcon(1, "agent", "incident")
     events._apply_alarm_defcon("armed")       # evening must not relax an escalation
     assert defcon.get_defcon() == 1
-    events._apply_alarm_defcon("disarmed")    # morning resets
+    events._apply_alarm_defcon("disarmed")    # incident survives the morning
+    assert defcon.get_defcon() == 1
+    defcon.request_defcon(5, "owner", "all clear")
+    assert defcon.get_defcon() == 5
+
+
+def test_owner_choice_survives_morning_disarm():
+    defcon.request_defcon(2, "owner", "away trip")
+    events._apply_alarm_defcon("disarmed")
+    assert defcon.get_defcon() == 2
+
+
+def test_seeded_level_is_reset_by_morning():
+    db.set_state("defcon", "3", "seed")
+    events._apply_alarm_defcon("disarmed")
     assert defcon.get_defcon() == 5
 
 
