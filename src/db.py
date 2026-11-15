@@ -56,6 +56,15 @@ def _init_schema(db: sqlite3.Connection):
         db.execute("ALTER TABLE events ADD COLUMN attempts INTEGER DEFAULT 0")
     if "last_error" not in cols:
         db.execute("ALTER TABLE events ADD COLUMN last_error TEXT")
+    # Dedup (added 2026-11): optional upstream id, content fingerprint, suppressed-repeat count
+    if "source_id" not in cols:
+        db.execute("ALTER TABLE events ADD COLUMN source_id TEXT")
+    if "fingerprint" not in cols:
+        db.execute("ALTER TABLE events ADD COLUMN fingerprint TEXT")
+    if "dup_count" not in cols:
+        db.execute("ALTER TABLE events ADD COLUMN dup_count INTEGER DEFAULT 0")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_evt_srcid ON events(source, source_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_evt_fp ON events(fingerprint, timestamp)")
     db.execute("""CREATE TABLE IF NOT EXISTS tasks (
         id TEXT PRIMARY KEY,
         chat_id INTEGER NOT NULL,
@@ -187,14 +196,46 @@ def get_recent_messages(chat_id: int, limit: int = 50) -> list[dict]:
 
 # --- Events ---
 
-def store_event(source: str, event_type: str, data: str, timestamp: str) -> int:
+def store_event(source: str, event_type: str, data: str, timestamp: str,
+                source_id: str | None = None, fingerprint: str | None = None) -> int:
     with _db() as db:
         cur = db.execute(
-            "INSERT INTO events (source, event_type, data, timestamp) VALUES (?,?,?,?)",
-            (source, event_type, data, timestamp),
+            "INSERT INTO events (source, event_type, data, timestamp, source_id, fingerprint) "
+            "VALUES (?,?,?,?,?,?)",
+            (source, event_type, data, timestamp, source_id, fingerprint),
         )
         db.commit()
         return cur.lastrowid
+
+
+def find_duplicate_event(source: str, source_id: str | None, fingerprint: str | None,
+                         id_since: str, fp_since: str) -> int | None:
+    """Return the id of an earlier copy of this event, or None.
+
+    An explicit (source, source_id) match is an exact replay. A fingerprint match
+    only counts inside the shorter fp_since window (a burst of identical events).
+    """
+    with _db() as db:
+        if source_id:
+            row = db.execute(
+                "SELECT id FROM events WHERE source=? AND source_id=? AND timestamp>=? AND processed!=-1 "
+                "ORDER BY id LIMIT 1", (source, source_id, id_since)).fetchone()
+            if row:
+                return row[0]
+        if fingerprint:
+            row = db.execute(
+                "SELECT id FROM events WHERE fingerprint=? AND timestamp>=? AND processed!=-1 "
+                "ORDER BY id LIMIT 1", (fingerprint, fp_since)).fetchone()
+            if row:
+                return row[0]
+    return None
+
+
+def bump_event_dup(event_id: int):
+    """Record that another identical event was suppressed."""
+    with _db() as db:
+        db.execute("UPDATE events SET dup_count=COALESCE(dup_count,0)+1 WHERE id=?", (event_id,))
+        db.commit()
 
 
 def get_unprocessed_events(limit: int = 20) -> list[dict]:

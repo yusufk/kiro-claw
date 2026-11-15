@@ -93,6 +93,25 @@ def write_output(status, result=None, error=None):
     print(f"{OUTPUT_START}\n{msg}\n{OUTPUT_END}", flush=True)
 
 
+def _trust_args(agent: str) -> list[str]:
+    """Trust exactly the tools the agent declares.
+
+    kiro-cli 3.3.0 with --no-interactive --trust-all-tools hides every MCP tool
+    from the model (2026-11-15: FRIDAY lost MemPalace and most of Home
+    Assistant). Naming the tools with --trust-tools exposes them. Falls back to
+    --trust-all-tools only if the agent file can't be read or declares "*".
+    """
+    path = os.path.expanduser(f"~/.kiro/agents/{agent}.json")
+    try:
+        tools = json.load(open(path)).get("tools") or []
+    except Exception:
+        return ["--trust-all-tools"]
+    names = [t.strip() for t in tools if isinstance(t, str) and t.strip()]
+    if not names or "*" in names:
+        return ["--trust-all-tools"]
+    return [f"--trust-tools={','.join(names)}"]
+
+
 def handle(data):
     prompt = data.get("prompt", "")
     agent = data.get("agent", "JARVIS")
@@ -103,7 +122,7 @@ def handle(data):
     if chat_id:
         os.environ["JARVIS_CHAT_ID"] = str(chat_id)
 
-    cmd = ["kiro-cli", "chat", "--agent", agent, "--no-interactive", "--trust-all-tools"]
+    cmd = ["kiro-cli", "chat", "--agent", agent, "--no-interactive", *_trust_args(agent)]
     if resume:
         cmd.append("--resume")
     cmd.append(prompt)

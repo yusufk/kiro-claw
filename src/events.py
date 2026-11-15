@@ -86,8 +86,10 @@ def _classify_event(event: dict) -> str:
         data = json.loads(event["data"]) if isinstance(event["data"], str) else event["data"]
     except (json.JSONDecodeError, TypeError):
         return "other"
-    friendly = data.get("friendly_name", "").lower()
-    state = data.get("state", "").lower()
+    if not isinstance(data, dict):
+        return "other"
+    friendly = str(data.get("friendly_name", "")).lower()
+    state = str(data.get("state", "")).lower()
 
     if "alarm" in friendly and ("armed" in friendly or "disarmed" in friendly):
         return "alarm_state"
@@ -121,7 +123,9 @@ def _is_alarm_event(event: dict) -> str | None:
         data = json.loads(event["data"]) if isinstance(event["data"], str) else event["data"]
     except (json.JSONDecodeError, TypeError):
         return None
-    friendly = data.get("friendly_name", "").lower()
+    if not isinstance(data, dict):
+        return None
+    friendly = str(data.get("friendly_name", "")).lower()
     if "alarm - armed" in friendly:
         return "armed"
     if "alarm - disarmed" in friendly:
@@ -157,7 +161,7 @@ def _build_briefing(alarm_state: str, event_ts: str, defcon: int) -> str | None:
         except (json.JSONDecodeError, TypeError):
             d = {}
         name = _clean(d.get("friendly_name", e.get("source", "unknown")) if isinstance(d, dict) else e.get("source", "unknown"))
-        counts[name] = counts.get(name, 0) + 1
+        counts[name] = counts.get(name, 0) + 1 + int(e.get("dup_count") or 0)
 
     counts_key = json.dumps(counts, sort_keys=True)
     if not _should_send_briefing(event_ts, counts_key):
@@ -193,7 +197,9 @@ def _summarise_events(events: list[dict], defcon: int) -> str:
         if isinstance(data, dict):
             friendly = _clean(data.get("friendly_name", data.get("entity_id", "")))
             state = _clean(data.get("state", ""), 60)
-            lines.append(f"- {friendly}: {state}")
+            repeats = int(e.get("dup_count") or 0)
+            suffix = f" (x{repeats + 1} in a burst)" if repeats else ""
+            lines.append(f"- {friendly}: {state}{suffix}")
         else:
             lines.append(f"- {_clean(e['source'], 40)}: {_clean(data, 200)}")
 
