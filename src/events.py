@@ -18,7 +18,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .db import get_unprocessed_events, mark_event_processed, get_events_since
+from .db import (get_unprocessed_events, mark_event_processed, get_events_since,
+                 mark_events_done, record_event_failure)
 from .runner import run_in_container
 from .config import BRAIN_DIR
 
@@ -27,6 +28,7 @@ log = logging.getLogger(__name__)
 POLL_INTERVAL = 5
 DEFAULT_CHAT_ID = int(os.environ.get("JARVIS_CHAT_ID", os.environ.get("OWNER_CHAT_ID", "0")))
 BATCH_WINDOW = 10
+MAX_ATTEMPTS = 3   # deliveries tried before an event is parked as failed
 MEMORY_PATH = Path(__file__).parent.parent / "data" / "brain" / "memory.json"
 # Fallback: BRAIN_DIR from env (per-machine), if the brain isn't at data/brain.
 MEMORY_ALT = (Path(BRAIN_DIR) / "memory.json") if BRAIN_DIR else None
@@ -187,65 +189,85 @@ def _summarise_events(events: list[dict], defcon: int) -> str:
     )
 
 
+async def _deliver(prompt: str, event_ids: list[int], what: str) -> bool:
+    """Run one container turn for a group of events. Events are only marked
+    done after the run succeeds; a failure leaves them pending for retry, up to
+    MAX_ATTEMPTS, after which they are parked as failed and logged."""
+    try:
+        await run_in_container(prompt, DEFAULT_CHAT_ID)
+    except Exception as e:
+        given_up = record_event_failure(event_ids, str(e), MAX_ATTEMPTS)
+        log.error("%s failed (%s); %d event(s) will retry, %d given up: %s",
+                  what, e, len(event_ids) - len(given_up), len(given_up), given_up or "")
+        return False
+    mark_events_done(event_ids)
+    return True
+
+
 async def event_processor_loop(send_fn):
-    """Poll events, filter by DEFCON, route to container."""
+    """Poll events, filter by DEFCON, route to container.
+
+    The events table is the source of truth: nothing is marked done until it
+    has been handled, so a crash or a failed run means the event is picked up
+    again on the next pass (the article pattern: mark done after the run)."""
     log.info("Event processor started (poll every %ds, batch window %ds)", POLL_INTERVAL, BATCH_WINDOW)
     while True:
         try:
-            events = get_unprocessed_events()
-            if not events:
+            if not get_unprocessed_events(limit=1):
                 await asyncio.sleep(POLL_INTERVAL)
                 continue
 
-            for e in events:
-                mark_event_processed(e["id"])
-
+            # Let a burst of events arrive, then take the whole batch at once
             await asyncio.sleep(BATCH_WINDOW)
-            more = get_unprocessed_events()
-            for e in more:
-                mark_event_processed(e["id"])
-                events.append(e)
+            events = get_unprocessed_events(limit=50)
+            if not events:
+                continue
 
             defcon = _auto_defcon()
 
             # Filter events by DEFCON level
             allowed = []
+            filtered_ids = []
             alarm_state = None
             alarm_ts = None
+            alarm_ids = []
             for e in events:
                 cls = _classify_event(e)
                 state = _is_alarm_event(e)
                 if state:
                     alarm_state = state
                     alarm_ts = e.get("timestamp")
+                    alarm_ids.append(e["id"])
                 if _defcon_allows(cls, defcon):
                     allowed.append(e)
-                else:
+                elif not state:
+                    filtered_ids.append(e["id"])
                     log.debug("DEFCON %d filtered out: %s", defcon, cls)
 
+            # Filtered events need no run: they are handled by being ignored
+            mark_events_done(filtered_ids)
+
+            failed = False
             # Alarm arm/disarm → briefing (always, regardless of filter)
             if alarm_state:
                 prompt = _build_briefing(alarm_state, alarm_ts, defcon)
                 if prompt:
                     log.info("Alarm %s — sending %s briefing (DEFCON %d)",
                              alarm_state, "MORNING" if alarm_state == "disarmed" else "EVENING", defcon)
-                    try:
-                        await run_in_container(prompt, DEFAULT_CHAT_ID)
-                    except Exception as e:
-                        log.error("Briefing container failed: %s", e)
-
-                # Also send remaining non-alarm events if any passed the filter
+                    failed |= not await _deliver(prompt, alarm_ids, "Briefing")
+                else:
+                    mark_events_done(alarm_ids)   # deduplicated briefing
                 allowed = [e for e in allowed if not _is_alarm_event(e)]
 
             if allowed:
                 prompt = _summarise_events(allowed, defcon)
                 log.info("Routing %d event(s) to JARVIS (DEFCON %d)", len(allowed), defcon)
-                try:
-                    await run_in_container(prompt, DEFAULT_CHAT_ID)
-                except Exception as e:
-                    log.error("Container failed on event batch: %s", e)
+                failed |= not await _deliver(prompt, [e["id"] for e in allowed], "Event batch")
             elif not alarm_state:
                 log.debug("All %d event(s) filtered at DEFCON %d", len(events), defcon)
+
+            if failed:
+                await asyncio.sleep(POLL_INTERVAL * 6)   # back off before retrying
 
         except Exception as e:
             log.error("Event processor error: %s", e)

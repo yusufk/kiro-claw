@@ -141,8 +141,35 @@ def handle(data):
         print(OUTPUT_END, flush=True)
 
 
+def _ensure_cli_settings():
+    """Write kiro-cli settings read at startup (~/.kiro/settings/cli.json).
+
+    mcp.noInteractiveTimeout raises the MCP-server startup window above the 60s
+    default so FRIDAY's slower servers (playwright npx cold-start, memory over the
+    pgvector token handshake) finish loading before --require-mcp-startup gives up
+    and prints "Not all mcp servers loaded". Value is milliseconds; values below
+    1000 are ignored by kiro-cli. This dir is ephemeral per container, so the
+    setting must be (re)written on every spawn.
+    """
+    settings_dir = os.path.expanduser("~/.kiro/settings")
+    settings_path = os.path.join(settings_dir, "cli.json")
+    try:
+        os.makedirs(settings_dir, exist_ok=True)
+        data = {}
+        if os.path.isfile(settings_path):
+            try:
+                data = json.load(open(settings_path))
+            except Exception:
+                data = {}
+        data["mcp.noInteractiveTimeout"] = 120000
+        json.dump(data, open(settings_path, "w"), indent=2)
+    except Exception:
+        pass
+
+
 def main():
     _patch_agent_configs()
+    _ensure_cli_settings()
     print("KIROCLAW_READY", flush=True)
     for line in sys.stdin:
         line = line.strip()
