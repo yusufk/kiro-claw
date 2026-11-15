@@ -152,3 +152,14 @@ def test_classifier_survives_non_dict():
     assert _classify_event({"data": json.dumps("just text")}) == "other"
     assert _classify_event({"data": json.dumps([1, 2])}) == "other"
     assert _is_alarm_event({"data": json.dumps(5)}) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("word", ["siren", "intruder", "smoke", "fire", "glass break", "flood", "water leak"])
+async def test_other_security_words_never_collapse(aiohttp_client, app, word):
+    client = await aiohttp_client(app)
+    body = {"source": "ha", "event_type": "state_changed",
+            "data": {"entity_id": "sensor.zone", "friendly_name": "Zone 7", "state": word}}
+    for _ in range(2):
+        resp = await (await client.post("/event", json=body)).json()
+        assert not resp.get("duplicate")

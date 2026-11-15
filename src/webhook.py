@@ -18,6 +18,8 @@ WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
 # source_id is an exact replay key and is honoured for the longer ID window.
 EVENT_DEDUP_WINDOW_SECONDS = int(os.environ.get("EVENT_DEDUP_WINDOW_SECONDS", "30"))
 SOURCE_ID_WINDOW_SECONDS = int(os.environ.get("EVENT_SOURCE_ID_WINDOW_SECONDS", "600"))
+# Note: a caller-supplied source_id is an exact replay key and is honoured for ANY event,
+# so a sender must never reuse one source_id for two genuinely separate events.
 # Never collapse these by content: a second doorbell press or alarm trigger is news.
 NEVER_FINGERPRINT = {"alarm_critical", "doorbell"}
 ALLOWED_IPS = {ip.strip() for ip in os.environ.get("WEBHOOK_ALLOWED_IPS", "127.0.0.1,192.168.1.125").split(",") if ip.strip()}
@@ -41,7 +43,12 @@ def _check_auth(request: web.Request) -> str | None:
     return None
 
 
-_SECURITY_WORDS = ("trigger", "tamper", "panic", "intrusion", "breach", "tripped")
+# Substring match over the whole payload. Over-matching only costs a little dedup;
+# under-matching could swallow a real alarm, so lean broad.
+_SECURITY_WORDS = (
+    "trigger", "tamper", "panic", "intrusion", "intruder", "breach", "tripped",
+    "siren", "glass", "smoke", "fire", "flood", "leak", "water", "gas", "carbon",
+)
 
 
 def _never_collapse(payload) -> bool:
