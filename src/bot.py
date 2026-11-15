@@ -76,7 +76,7 @@ def create_bot() -> Application:
         from .defcon import get_defcon, request_defcon
         from .db import get_defcon_history
         user = update.effective_user.id if update.effective_user else 0
-        owner = int(os.environ.get("OWNER_CHAT_ID", "0"))
+        owner = int(os.environ.get("OWNER_CHAT_ID") or "0")
         if not owner or user != owner:
             return
         if not ctx.args:

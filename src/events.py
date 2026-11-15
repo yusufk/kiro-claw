@@ -1,4 +1,3 @@
-import os
 """Event processor — DEFCON-based filtering + briefings.
 
 DEFCON controls which events reach the JARVIS container:
@@ -9,10 +8,11 @@ DEFCON controls which events reach the JARVIS container:
   1: + everything, all cameras, proactive checks
 
 Auto-escalation: DEFCON bumps to 3 at 9PM, back to 5 at 7AM.
-JARVIS can also bump DEFCON via knowledge graph.
+The host owns the level (SQLite, see defcon.py); FRIDAY can escalate with jarvis-defcon.
 """
 
 import asyncio
+import os
 import json
 import re
 import logging
@@ -233,6 +233,9 @@ async def event_processor_loop(send_fn):
             if not events:
                 continue
 
+            # One level for the whole batch. An alarm event in this same batch updates it
+            # afterwards; same-batch movement is filtered at the pre-alarm level, which is
+            # fine because the alarm briefing covers the previous 12 hours anyway.
             defcon = _auto_defcon()
 
             # Filter events by DEFCON level

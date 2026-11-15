@@ -66,10 +66,11 @@ def get_defcon() -> int:
 
 def request_defcon(level, actor: str, reason: str = "") -> tuple[bool, int, str]:
     """Try to change the level. Returns (applied, level_now, message)."""
-    try:
-        level = int(level)
-    except (TypeError, ValueError):
-        return False, get_defcon(), "level must be a number from 1 to 5"
+    if isinstance(level, str):
+        level = level.strip()
+        level = int(level) if level.isascii() and level.isdigit() else None
+    if isinstance(level, bool) or not isinstance(level, int):
+        return False, get_defcon(), "level must be a whole number from 1 to 5"
     if level not in LEVELS:
         return False, get_defcon(), "level must be from 1 to 5"
     if actor not in ("owner", "agent", "system"):

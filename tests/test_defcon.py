@@ -46,10 +46,15 @@ def test_owner_can_relax():
     assert ok and level == 5
 
 
-@pytest.mark.parametrize("bad", [0, 6, "x", None, -1, 2.5e9])
+@pytest.mark.parametrize("bad", [0, 6, "x", None, -1, 2.5e9, True, False, 1.0, 2.9, "3.0", "\u0663", [], {}])
 def test_invalid_levels_rejected(bad):
     ok, level, _ = defcon.request_defcon(bad, "owner")
     assert not ok and level == 5
+
+
+def test_digit_strings_with_spaces_ok():
+    ok, level, _ = defcon.request_defcon(" 2 ", "owner")
+    assert ok and level == 2
 
 
 def test_history_records_actor_and_reason():
@@ -89,3 +94,6 @@ def test_briefing_no_longer_asks_agent_to_edit_graph(monkeypatch):
     monkeypatch.setattr(events, "_should_send_briefing", lambda *a: True)
     prompt = events._build_briefing("armed", "2026-01-01T20:00:00Z", 3)
     assert "knowledge graph" not in prompt and "jarvis-defcon" in prompt
+    assert "Current DEFCON: 3" in prompt and "EVENING" in prompt
+    morning = events._build_briefing("disarmed", "2026-01-01T07:00:00Z", 5)
+    assert "Current DEFCON: 5" in morning and "MORNING" in morning
