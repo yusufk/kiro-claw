@@ -261,9 +261,9 @@ async def run_in_container(prompt: str, chat_id: int, raise_errors: bool = False
 async def _read_stream():
     """Yield cleaned lines as they arrive between output markers."""
     capturing = False
-    deadline = asyncio.get_event_loop().time() + CONTAINER_TIMEOUT
+    deadline = asyncio.get_running_loop().time() + CONTAINER_TIMEOUT
     while True:
-        remaining = deadline - asyncio.get_event_loop().time()
+        remaining = deadline - asyncio.get_running_loop().time()
         if remaining <= 0:
             raise asyncio.TimeoutError()
         line = await asyncio.wait_for(_proc.stdout.readline(), timeout=remaining)
