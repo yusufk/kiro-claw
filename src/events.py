@@ -193,7 +193,9 @@ def _summarise_events(events: list[dict], defcon: int) -> str:
         if isinstance(data, dict):
             friendly = _clean(data.get("friendly_name", data.get("entity_id", "")))
             state = _clean(data.get("state", ""), 60)
-            lines.append(f"- {friendly}: {state}")
+            repeats = int(e.get("dup_count") or 0)
+            suffix = f" (x{repeats + 1} in a burst)" if repeats else ""
+            lines.append(f"- {friendly}: {state}{suffix}")
         else:
             lines.append(f"- {_clean(e['source'], 40)}: {_clean(data, 200)}")
 
