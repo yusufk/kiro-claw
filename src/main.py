@@ -6,7 +6,6 @@ import re
 
 from aiohttp import web
 
-from .queue import ChatQueue
 from .bot import create_bot
 from .runner import run_in_container
 from .scheduler import scheduler_loop
@@ -43,8 +42,7 @@ for _handler in logging.getLogger().handlers:
 
 
 def main():
-    queue = ChatQueue(run_in_container)
-    app = create_bot(queue)
+    app = create_bot()
 
     async def post_init(application):
         bot = application.bot

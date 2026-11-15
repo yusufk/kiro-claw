@@ -1,6 +1,6 @@
 # Kiro-Claw 🦞
 
-A Telegram bot that bridges messages to [JARVIS](https://cli.kiro.dev/) (Kiro CLI agent) running inside a persistent Docker container. Includes task scheduling, proactive messaging, event ingestion, and live response streaming.
+A Telegram bot that bridges messages to [JARVIS](https://cli.kiro.dev/) (Kiro CLI agent) running inside a persistent Docker container. Includes task scheduling, proactive messaging, event ingestion, and a silent-container model (the agent speaks only through `jarvis-send`).
 
 ## Architecture
 
@@ -11,11 +11,11 @@ A Telegram bot that bridges messages to [JARVIS](https://cli.kiro.dev/) (Kiro CL
   Telegram ──────────────►│  python-telegram-bot                        │
                           │       │                                     │
                           │       ▼                                     │
-                          │  per-chat async lock ──► Docker container   │
+                          │  global run lock  ──► Docker container   │
                           │                          (persistent)       │
                           │                          kiro-cli --resume  │
                           │                               │             │
-  Telegram ◄──────────────│  streaming drafts ◄── clean ◄─┘             │
+  Telegram ◄──────────────│  jarvis-send (IPC) ◄── ┘              │
                           │                                             │
                           │  ┌─────────────────────────────────────┐    │
                           │  │         SQLite (kiro-claw.db)       │    │
@@ -45,7 +45,7 @@ A Telegram bot that bridges messages to [JARVIS](https://cli.kiro.dev/) (Kiro CL
 
 ### Data Flow
 
-1. **Telegram → JARVIS** (Chat pipeline): Messages arrive via polling, get queued per-chat, forwarded to the persistent Docker container running `kiro-cli --resume`. Responses stream back via `sendMessageDraft`.
+1. **Telegram → JARVIS** (Chat pipeline): Messages arrive via polling, are serialised by one global lock in `runner.py`, and forwarded to the persistent Docker container running `kiro-cli --resume`. Container stdout is internal dialogue and is only logged. The agent replies by calling `jarvis-send`, which reaches Telegram through the IPC directory.
 2. **External events → JARVIS** (Event pipeline): HA (or any source) POSTs to `/event` on port 8099. Events are batched, sent to the container silently. Container stdout is discarded — all output goes through IPC (`jarvis-send`, `jarvis-photo`).
 3. **Scheduled tasks**: Stored in SQLite, polled every 30s. Due tasks run their prompt through the container and send results to Telegram.
 4. **Container → Telegram**: The container writes JSON files to `/workspace/ipc/` for proactive messaging and task management.
@@ -57,9 +57,9 @@ A Telegram bot that bridges messages to [JARVIS](https://cli.kiro.dev/) (Kiro CL
 - **Session resume** — `kiro-cli chat --resume` maintains conversation context across messages.
 - **Unified SQLite DB** — messages, events, and tasks in one database (`data/kiro-claw.db`). Inspired by [nanoclaw](https://github.com/yusufk/nanoclaw).
 - **Transport-agnostic event bus** — the `events` table doesn't care how events arrive (webhook, MQTT, IPC). Processors just poll the table.
-- **Per-chat locking** — `asyncio.Lock` per chat ID serialises messages so the container handles one at a time.
+- **Global run lock** — one `asyncio.Lock` in `runner.py` serialises chat, scheduled tasks and events so the container handles one run at a time.
 - **Secret redaction** — all MCP secret values are pattern-matched and stripped from output before delivery to Telegram.
-- **Streaming** — `sendMessageDraft` (Bot API 9.3) streams partial responses live in Telegram.
+- **Untrusted event text** — device names and states are flattened, length-capped and stripped of control characters and brackets before entering a prompt, and are labelled as data, never instructions.
 
 ## Quick Start (macOS)
 
@@ -233,7 +233,8 @@ Events are processed through a **separate pipeline** from chat messages:
 
 ```
 Events: webhook → events table → container (silent) → IPC only (jarvis-send/jarvis-photo)
-Chat:   Telegram → container → streaming drafts → direct reply
+Chat:   Telegram → container (silent) → IPC only (jarvis-send/jarvis-photo)
+Tasks:  scheduler → container (silent) → IPC only
 ```
 
 The container's stdout is **discarded** for events — all output goes exclusively through IPC tools. This cleanly separates the two pipelines and avoids tool execution noise leaking into Telegram.
@@ -355,8 +356,7 @@ kiro-claw/
 ├── src/
 │   ├── main.py               # Entry point — wires bot + scheduler + IPC + webhook + events
 │   ├── bot.py                # Telegram handlers, message storage
-│   ├── runner.py             # Docker container lifecycle + streaming
-│   ├── queue.py              # Per-chat async locking
+│   ├── runner.py             # Docker container lifecycle + global run lock
 │   ├── config.py             # Environment config loader
 │   ├── db.py                 # SQLite: messages, events, tasks
 │   ├── scheduler.py          # Task scheduler (polls every 30s)

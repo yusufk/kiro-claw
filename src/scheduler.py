@@ -101,7 +101,7 @@ def schedule_task(chat_id: int, prompt: str, schedule_type: str, schedule_value:
 
 
 async def _run_task(task: dict, send_fn):
-    """Execute a single task and send the result to Telegram."""
+    """Execute a single task. Output reaches Telegram only via jarvis-send (IPC)."""
     # Runaway-loop guard: if a repeating task has fired too many times recently,
     # it's almost certainly a mis-scheduled no-op loop (see the 2026-10-24
     # night-alarm-watch incident). Auto-disable and tell Boss once.
@@ -126,12 +126,16 @@ async def _run_task(task: dict, send_fn):
 
     start = time.monotonic()
     try:
-        result = await run_in_container(task["prompt"], task["chat_id"])
+        # Container stdout is internal dialogue; the task delivers via jarvis-send.
+        prompt = (
+            "[SCHEDULED TASK - act via jarvis-send/jarvis-photo only, do NOT reply in chat]\n"
+            + task["prompt"]
+        )
+        result = await run_in_container(prompt, task["chat_id"], raise_errors=True)
         duration = int((time.monotonic() - start) * 1000)
         log_run(task["id"], datetime.now(timezone.utc).isoformat(), duration, "success", result=result[:500])
 
-        # Send result to user
-        await send_fn(task["chat_id"], result)
+        log.info("[TASK %s] %s", task["id"], result[:200])
 
         # Calculate next run
         next_run = _next_run(task["schedule_type"], task["schedule_value"])
@@ -141,6 +145,10 @@ async def _run_task(task: dict, send_fn):
         duration = int((time.monotonic() - start) * 1000)
         log_run(task["id"], datetime.now(timezone.utc).isoformat(), duration, "error", error=str(e))
         log.error("Task %s failed: %s", task["id"], e)
+        try:
+            await send_fn(task["chat_id"], f"Scheduled task {task['id']} failed: {str(e)[:200]}")
+        except Exception:
+            pass
         # Still advance next_run so we don't retry immediately
         next_run = _next_run(task["schedule_type"], task["schedule_value"])
         update_after_run(task["id"], next_run, f"Error: {e}")

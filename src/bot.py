@@ -16,7 +16,6 @@ from telegram.ext import (
 )
 
 from .config import TELEGRAM_BOT_TOKEN, TRIGGER_PATTERN, ALLOWED_CHAT_IDS
-from .queue import ChatQueue
 from .runner import stream_from_container
 from .db import get_tasks_for_chat, delete_task, store_message
 
@@ -64,7 +63,7 @@ def _should_respond(text: str, is_private: bool) -> str | None:
     return match.group(1).strip() if match else None
 
 
-def create_bot(queue: ChatQueue) -> Application:
+def create_bot() -> Application:
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     async def cmd_ping(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

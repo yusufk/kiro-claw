@@ -35,7 +35,7 @@ async def test_process_message(ipc_dir):
     try:
         f = _write_ipc(ipc_dir, {"type": "message", "chat_id": 123, "text": "hello"})
         await ipc._process_file(f, send_fn)
-        send_fn.assert_called_once_with(123, "hello")
+        send_fn.assert_called_once_with(123, "hello", parse_mode=None)
         assert not f.exists()
     finally:
         ipc.ALLOWED_CHAT_IDS = old
