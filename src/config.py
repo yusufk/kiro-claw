@@ -9,6 +9,11 @@ KIRO_AGENT = os.getenv("KIRO_AGENT", "JARVIS")
 CONTAINER_IMAGE = os.getenv("CONTAINER_IMAGE", "kiro-claw-agent:latest")
 CONTAINER_TIMEOUT = int(os.getenv("CONTAINER_TIMEOUT", "300"))
 BRAIN_DIR = os.getenv("BRAIN_DIR", "")
+# Optional: comma-separated paths under BRAIN_DIR to mount instead of the whole
+# folder, each with an optional ":ro" suffix, e.g.
+#   BRAIN_MOUNTS=JARVIS Identity.md:ro,skills,memory.json,FRIDAY
+# Unset = mount the whole BRAIN_DIR read-write (previous behaviour).
+BRAIN_MOUNTS = os.getenv("BRAIN_MOUNTS", "")
 EXTRA_HOSTS = os.getenv("EXTRA_HOSTS", "")  # e.g. "myserver:10.0.0.1,other:10.0.0.2"
 PROJECTS = os.getenv("PROJECTS", "")  # e.g. "/Users/yusuf/Development/dha-slot-sniper,/Users/yusuf/Development/other"
 MEMPALACE_VENV = os.getenv("MEMPALACE_VENV", "")      # optional: host path to a mempalace venv, mounted into the container
