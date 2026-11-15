@@ -93,6 +93,11 @@ async def _process_file(filepath: Path, send_fn, send_photo_fn=None):
                 await send_photo_fn(int(chat_id), photo_path, caption)
                 log.info("IPC photo sent to %s: %s", chat_id, photo_path)
 
+        elif msg_type == "set_defcon":
+            from .defcon import request_defcon
+            ok, level, msg = request_defcon(data.get("level"), "agent", str(data.get("reason", "")))
+            log.info("IPC set_defcon %s (now %d): %s", "applied" if ok else "rejected", level, msg)
+
         elif msg_type == "speak":
             text = data.get("text", "")
             if text:

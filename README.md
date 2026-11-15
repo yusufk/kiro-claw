@@ -441,9 +441,11 @@ Events from Home Assistant are filtered by a DEFCON level before reaching the co
 ### Auto-escalation
 
 - **9PM–7AM**: System enforces at least DEFCON 3 automatically (movement events pass through)
-- **Evening briefing** (alarm armed): Agent bumps DEFCON to 3 in the knowledge graph
-- **Morning briefing** (alarm disarmed): Agent resets DEFCON to 5
-- **Manual override**: User can say "set defcon 2" via Telegram
+- **Evening arm** (alarm armed): the host sets DEFCON to at least 3
+- **Morning disarm** (alarm disarmed): the host resets DEFCON to 5, but only a level the schedule set. An incident escalation by FRIDAY, or a level you chose with `/defcon`, stays until you relax it
+- **Manual override**: Yusuf sends `/defcon N` (1 = most alert, 5 = quiet); `/defcon` alone shows the level and recent changes
+- **Agent escalation**: FRIDAY may call `jarvis-defcon <1-4>` to escalate. The host rejects any attempt by the agent to relax it
+- DEFCON is host-owned state in SQLite (`state` and `defcon_history` tables), not in the agent's knowledge graph
 
 ### Briefings
 
