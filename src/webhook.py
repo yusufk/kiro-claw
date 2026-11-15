@@ -16,7 +16,7 @@ WEBHOOK_PORT = int(os.environ.get("WEBHOOK_PORT", "8099"))
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
 # Identical events inside this window collapse into one (0 disables). A caller-supplied
 # source_id is an exact replay key and is honoured for the longer ID window.
-DEDUP_WINDOW_SECONDS = int(os.environ.get("EVENT_DEDUP_WINDOW_SECONDS", "30"))
+EVENT_DEDUP_WINDOW_SECONDS = int(os.environ.get("EVENT_DEDUP_WINDOW_SECONDS", "30"))
 SOURCE_ID_WINDOW_SECONDS = int(os.environ.get("EVENT_SOURCE_ID_WINDOW_SECONDS", "600"))
 # Never collapse these by content: a second doorbell press or alarm trigger is news.
 NEVER_FINGERPRINT = {"alarm_critical", "doorbell"}
@@ -39,6 +39,21 @@ def _check_auth(request: web.Request) -> str | None:
             return "unauthorized"
 
     return None
+
+
+_SECURITY_WORDS = ("trigger", "tamper", "panic", "intrusion", "breach", "tripped")
+
+
+def _never_collapse(payload) -> bool:
+    """True when this event must always be stored, however similar to a recent one."""
+    from .events import _classify_event  # local import: events pulls in the runner
+    try:
+        if _classify_event({"data": json.dumps(payload, default=str)}) in NEVER_FINGERPRINT:
+            return True
+    except Exception:
+        return True  # cannot classify: do not risk swallowing it
+    text = json.dumps(payload, default=str).lower()
+    return any(w in text for w in _SECURITY_WORDS)
 
 
 def _fingerprint(source: str, event_type: str, payload) -> str:
@@ -76,9 +91,8 @@ async def handle_event(request: web.Request) -> web.Response:
     source_id = data.get("source_id")
     source_id = str(source_id)[:200] if source_id not in (None, "") else None
     fp = None
-    if DEDUP_WINDOW_SECONDS > 0:
-        from .events import _classify_event  # local import: events pulls in the runner
-        if _classify_event({"data": json.dumps(payload)}) not in NEVER_FINGERPRINT:
+    if EVENT_DEDUP_WINDOW_SECONDS > 0:
+        if not _never_collapse(payload):
             fp = _fingerprint(source, event_type, payload)
 
     if source_id or fp:
@@ -86,7 +100,7 @@ async def handle_event(request: web.Request) -> web.Response:
         existing = find_duplicate_event(
             source, source_id, fp,
             (now - timedelta(seconds=SOURCE_ID_WINDOW_SECONDS)).strftime(fmt),
-            (now - timedelta(seconds=max(DEDUP_WINDOW_SECONDS, 1))).strftime(fmt),
+            (now - timedelta(seconds=max(EVENT_DEDUP_WINDOW_SECONDS, 1))).strftime(fmt),
         )
         if existing:
             bump_event_dup(existing)

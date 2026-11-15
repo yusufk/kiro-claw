@@ -13,7 +13,7 @@ def app(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "t.db")
     monkeypatch.setattr(webhook, "WEBHOOK_SECRET", "")
     monkeypatch.setattr(webhook, "ALLOWED_IPS", set())
-    monkeypatch.setattr(webhook, "DEDUP_WINDOW_SECONDS", 30)
+    monkeypatch.setattr(webhook, "EVENT_DEDUP_WINDOW_SECONDS", 30)
     return create_webhook_app()
 
 
@@ -79,7 +79,7 @@ async def test_doorbell_and_alarm_triggers_never_collapse_by_content(aiohttp_cli
 
 @pytest.mark.asyncio
 async def test_window_zero_disables_fingerprint_dedup(aiohttp_client, app, monkeypatch):
-    monkeypatch.setattr(webhook, "DEDUP_WINDOW_SECONDS", 0)
+    monkeypatch.setattr(webhook, "EVENT_DEDUP_WINDOW_SECONDS", 0)
     client = await aiohttp_client(app)
     await client.post("/event", json=_motion())
     resp = await (await client.post("/event", json=_motion())).json()
@@ -103,3 +103,52 @@ def test_prompt_shows_burst_count():
     ev = [{"source": "ha", "event_type": "x", "dup_count": 2,
            "data": json.dumps({"friendly_name": "Movement - back", "state": "on"})}]
     assert "x3 in a burst" in _summarise_events(ev, defcon=3)
+
+
+@pytest.mark.asyncio
+async def test_non_dict_payload_is_stored_not_500(aiohttp_client, app):
+    client = await aiohttp_client(app)
+    resp = await client.post("/event", json={"source": "ha", "event_type": "x", "data": "alarm fired now"})
+    assert resp.status == 200
+    assert len(_rows()) == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_event_does_not_swallow_retry(aiohttp_client, app):
+    client = await aiohttp_client(app)
+    first = await (await client.post("/event", json=_motion(source_id="s1"))).json()
+    with db._db() as c:
+        c.execute("UPDATE events SET processed=-1 WHERE id=?", (first["event_id"],))
+        c.commit()
+    retry = await (await client.post("/event", json=_motion(source_id="s1"))).json()
+    assert not retry.get("duplicate")
+    assert len(_rows()) == 2
+
+
+@pytest.mark.asyncio
+async def test_triggered_state_never_collapses_even_with_armed_name(aiohttp_client, app):
+    client = await aiohttp_client(app)
+    body = {"source": "ha", "event_type": "state_changed",
+            "data": {"entity_id": "alarm_control_panel.partition_outside",
+                     "friendly_name": "Alarm - Armed", "state": "triggered"}}
+    for _ in range(3):
+        resp = await (await client.post("/event", json=body)).json()
+        assert not resp.get("duplicate")
+    assert len(_rows()) == 3
+
+
+def test_briefing_counts_include_suppressed_repeats(monkeypatch):
+    import src.events as ev
+    rows = [{"source": "ha", "dup_count": 4,
+             "data": json.dumps({"friendly_name": "Movement - back", "state": "on"})}]
+    monkeypatch.setattr(ev, "get_events_since", lambda since: rows)
+    monkeypatch.setattr(ev, "_should_send_briefing", lambda *a: True)
+    prompt = ev._build_briefing("disarmed", "2026-01-01T07:00:00Z", 5)
+    assert "Movement - back: 5x" in prompt
+
+
+def test_classifier_survives_non_dict():
+    from src.events import _classify_event, _is_alarm_event
+    assert _classify_event({"data": json.dumps("just text")}) == "other"
+    assert _classify_event({"data": json.dumps([1, 2])}) == "other"
+    assert _is_alarm_event({"data": json.dumps(5)}) is None

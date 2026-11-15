@@ -218,13 +218,13 @@ def find_duplicate_event(source: str, source_id: str | None, fingerprint: str | 
     with _db() as db:
         if source_id:
             row = db.execute(
-                "SELECT id FROM events WHERE source=? AND source_id=? AND timestamp>=? "
+                "SELECT id FROM events WHERE source=? AND source_id=? AND timestamp>=? AND processed!=-1 "
                 "ORDER BY id LIMIT 1", (source, source_id, id_since)).fetchone()
             if row:
                 return row[0]
         if fingerprint:
             row = db.execute(
-                "SELECT id FROM events WHERE fingerprint=? AND timestamp>=? "
+                "SELECT id FROM events WHERE fingerprint=? AND timestamp>=? AND processed!=-1 "
                 "ORDER BY id LIMIT 1", (fingerprint, fp_since)).fetchone()
             if row:
                 return row[0]
