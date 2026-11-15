@@ -64,7 +64,7 @@ def _auto_defcon() -> int:
     return stored
 
 
-_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]+")
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff]+")
 
 
 def _clean(value, limit: int = 120) -> str:
@@ -93,7 +93,7 @@ def _classify_event(event: dict) -> str:
         return "alarm_state"
     if "alarm" in friendly and ("triggered" in state or "tamper" in state):
         return "alarm_critical"
-    if "doorbell" in friendly or re.search(r"\bring\b", friendly):
+    if "doorbell" in friendly or re.search(r"(?<![a-z])ring(?![a-z])", friendly):
         return "doorbell"
     if "movement" in friendly or "motion" in friendly:
         return "movement"

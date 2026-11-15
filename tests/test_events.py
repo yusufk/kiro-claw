@@ -76,3 +76,15 @@ class TestQuarantine:
         from src.events import _is_alarm_event
         ev = {"data": json.dumps({"friendly_name": "alarm - ARMED"})}
         assert _is_alarm_event(ev) == "armed"
+
+    def test_ring_underscore_and_spring(self):
+        from src.events import _classify_event
+        for name, want in [("front_door_ring", "doorbell"), ("Ring Doorbell", "doorbell"),
+                           ("Spring Monitoring", "other"), ("string", "other")]:
+            ev = {"data": json.dumps({"friendly_name": name, "state": "on"})}
+            assert _classify_event(ev) == want, name
+
+    def test_invisible_chars_stripped(self):
+        from src.events import _clean
+        assert "\u200b" not in _clean("a\u200bb")
+        assert "\u202e" not in _clean("x\u202ey") and "\ufeff" not in _clean("x\ufeffy")

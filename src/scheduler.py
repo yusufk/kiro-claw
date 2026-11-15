@@ -131,7 +131,7 @@ async def _run_task(task: dict, send_fn):
             "[SCHEDULED TASK - act via jarvis-send/jarvis-photo only, do NOT reply in chat]\n"
             + task["prompt"]
         )
-        result = await run_in_container(prompt, task["chat_id"])
+        result = await run_in_container(prompt, task["chat_id"], raise_errors=True)
         duration = int((time.monotonic() - start) * 1000)
         log_run(task["id"], datetime.now(timezone.utc).isoformat(), duration, "success", result=result[:500])
 
@@ -145,6 +145,10 @@ async def _run_task(task: dict, send_fn):
         duration = int((time.monotonic() - start) * 1000)
         log_run(task["id"], datetime.now(timezone.utc).isoformat(), duration, "error", error=str(e))
         log.error("Task %s failed: %s", task["id"], e)
+        try:
+            await send_fn(task["chat_id"], f"Scheduled task {task['id']} failed: {str(e)[:200]}")
+        except Exception:
+            pass
         # Still advance next_run so we don't retry immediately
         next_run = _next_run(task["schedule_type"], task["schedule_value"])
         update_after_run(task["id"], next_run, f"Error: {e}")
