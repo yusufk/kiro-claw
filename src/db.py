@@ -31,6 +31,12 @@ def _conn() -> sqlite3.Connection:
         processed INTEGER DEFAULT 0
     )""")
     db.execute("CREATE INDEX IF NOT EXISTS idx_evt_proc ON events(processed, timestamp)")
+    # Delivery tracking (added 2026-11): processed 0 = pending, 1 = done, -1 = failed
+    cols = {r[1] for r in db.execute("PRAGMA table_info(events)")}
+    if "attempts" not in cols:
+        db.execute("ALTER TABLE events ADD COLUMN attempts INTEGER DEFAULT 0")
+    if "last_error" not in cols:
+        db.execute("ALTER TABLE events ADD COLUMN last_error TEXT")
     db.execute("""CREATE TABLE IF NOT EXISTS tasks (
         id TEXT PRIMARY KEY,
         chat_id INTEGER NOT NULL,
@@ -181,10 +187,39 @@ def get_unprocessed_events(limit: int = 20) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+EVENT_PENDING, EVENT_DONE, EVENT_FAILED = 0, 1, -1
+
+
 def mark_event_processed(event_id: int):
     db = _conn()
     db.execute("UPDATE events SET processed=1 WHERE id=?", (event_id,))
     db.commit()
+
+
+def mark_events_done(event_ids: list[int]):
+    if not event_ids:
+        return
+    db = _conn()
+    db.executemany("UPDATE events SET processed=1 WHERE id=?", [(i,) for i in event_ids])
+    db.commit()
+
+
+def record_event_failure(event_ids: list[int], error: str, max_attempts: int) -> list[int]:
+    """Count a failed delivery. Events that reach max_attempts are parked as
+    failed (processed=-1) so they stop retrying; returns those ids."""
+    if not event_ids:
+        return []
+    db = _conn()
+    marks = ",".join("?" * len(event_ids))
+    db.execute(f"UPDATE events SET attempts=attempts+1, last_error=? WHERE id IN ({marks})",
+               (error[:500], *event_ids))
+    rows = db.execute(f"SELECT id FROM events WHERE id IN ({marks}) AND attempts>=?",
+                      (*event_ids, max_attempts)).fetchall()
+    given_up = [r[0] for r in rows]
+    if given_up:
+        db.executemany("UPDATE events SET processed=-1 WHERE id=?", [(i,) for i in given_up])
+    db.commit()
+    return given_up
 
 
 def get_recent_events(source: str = None, limit: int = 20) -> list[dict]:
