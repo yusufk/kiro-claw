@@ -4,9 +4,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl python3 python3-pip python3-venv ca-certificates unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Install kiro-cli (Linux) then move to shared PATH
+# Install kiro-cli (Linux, stable channel) then move to shared PATH.
+# The install script resolves the latest stable release; it has no exact-version
+# pin, so we bust the layer cache with KIRO_CLI_CACHEBUST to force a fresh pull on
+# deliberate rebuilds. Bump the value (e.g. a date) to re-fetch current stable.
+# Validated against kiro-cli 2.34.x (V3) on 2026-10-25 for the FRIDAY V3 upgrade.
+ARG KIRO_CLI_CACHEBUST=2026-10-25
 RUN curl -fsSL https://cli.kiro.dev/install | bash \
-    && mv /root/.local/bin/kiro-cli* /usr/local/bin/
+    && mv /root/.local/bin/kiro-cli* /usr/local/bin/ \
+    && kiro-cli --version
 
 # Install uv (for uvx/mcp-proxy) globally
 ENV UV_INSTALL_DIR=/usr/local/bin
