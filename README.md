@@ -90,11 +90,10 @@ docker build -t kiro-claw-agent container/
 - `BRAIN_DIR=/home/yusuf/Documents/Obsidian/Yusufs Vault/AI brain` (not `/Users/...`)
 - `PROJECTS=/home/yusuf/Development/dha-slot-sniper` (Linux paths)
 
-**kiro-claw.sh** uses pyenv paths by default (macOS). On Linux, patch them:
-```bash
-sed -i 's|/Users/yusuf/.pyenv/shims/python3|.venv/bin/python3|g' kiro-claw.sh
-sed -i 's|/Users/yusuf/.pyenv/versions/3.12.8/bin/python|.venv/bin/python3|g' kiro-claw.sh
-```
+On a server, run the bot under systemd (below), not `kiro-claw.sh`. When a
+`kiro-claw` systemd unit exists, `kiro-claw.sh` refuses `start`/`stop`/`restart`
+(they would launch a second copy and kill the systemd one) and maps `status`/`logs`
+to systemctl/journalctl.
 
 ### Auto-start with systemd
 
@@ -118,13 +117,16 @@ User=yusuf
 WorkingDirectory=/home/yusuf/Development/kiro-claw
 ExecStart=/home/yusuf/Development/kiro-claw/.venv/bin/python3 -m src.main
 ExecStop=/usr/bin/docker kill kiroclaw-agent
-Restart=on-failure
+Restart=always
 RestartSec=10
 Environment=PATH=/home/yusuf/Development/kiro-claw/.venv/bin:/usr/local/bin:/usr/bin:/bin
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+`Restart=always` matters: the deploy script restarts the bot by stopping its
+process and letting systemd bring it back, so it needs no sudo.
 
 Manage with systemd:
 ```bash
@@ -135,9 +137,19 @@ sudo journalctl -u kiro-claw -f    # live logs
 
 ### Remote deploy from macOS
 
-A deploy script is included for pushing updates from macbook:
 ```bash
-./deploy-cappucino.sh    # pushes code, syncs auth, rebuilds, restarts
+./deploy-cappucino.sh              # push, pull, rebuild image, restart via systemd
+./deploy-cappucino.sh --no-build   # code change only, skip the (slow) image build
+./deploy-cappucino.sh --sync-auth  # also copy local data/kiro-data (auth tokens)
+```
+
+It refuses to run with uncommitted changes, pulls fast-forward only, tags the
+previous image as `kiro-claw-agent:rollback-<stamp>` before rebuilding, and never
+overwrites cappucino's `data/agent.json`. To roll back the image:
+
+```bash
+ssh cappucino 'docker tag kiro-claw-agent:rollback-<stamp> kiro-claw-agent:latest'
+./deploy-cappucino.sh --no-build
 ```
 
 ### Home Assistant webhook
@@ -155,6 +167,8 @@ Then restart HA core: `ha core restart`
 
 ## Management
 
+On macOS / dev machines:
+
 ```bash
 ./kiro-claw.sh start        # start bot (background, with PID file)
 ./kiro-claw.sh stop         # stop bot + kill agent container
@@ -162,6 +176,9 @@ Then restart HA core: `ha core restart`
 ./kiro-claw.sh status       # check if running
 ./kiro-claw.sh logs         # tail the log file
 ```
+
+On a systemd host (cappucino), use `sudo systemctl {status|restart|stop} kiro-claw`
+and `journalctl -u kiro-claw -f`.
 
 ## Bot Commands
 

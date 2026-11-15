@@ -26,7 +26,29 @@ if [ ! -f "$DIR/data/agent.json" ]; then
   echo "Created data/agent.json from template — edit secrets or ensure .env has them"
 fi
 
-case "${1:-start}" in
+CMD="${1:-start}"
+
+case "$CMD" in
+  start|stop|restart|status|logs) ;;
+  *) echo "Usage: $0 {start|stop|restart|status|logs}"; exit 1 ;;
+esac
+
+# On a host where systemd owns the bot (cappucino), this script must not manage
+# the process: `start` would launch a second copy and its port-8099 cleanup would
+# SIGKILL the systemd-managed one, causing a crash loop. Point at systemd instead.
+if command -v systemctl >/dev/null 2>&1 && systemctl cat kiro-claw >/dev/null 2>&1; then
+  case "$CMD" in
+    status) exec systemctl status kiro-claw --no-pager ;;
+    logs)   exec journalctl -u kiro-claw -f ;;
+    *)
+      echo "Refusing to '$CMD': systemd owns kiro-claw on this host." >&2
+      echo "Use: sudo systemctl $CMD kiro-claw" >&2
+      exit 1
+      ;;
+  esac
+fi
+
+case "$CMD" in
   start)
     if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
       echo "Already running (PID $(cat "$PIDFILE"))"
