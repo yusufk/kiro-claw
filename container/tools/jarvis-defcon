@@ -1,0 +1,16 @@
+#!/bin/sh
+# Escalate DEFCON (lower number = more alert). Usage: jarvis-defcon <1-4> [reason]
+# The host owns DEFCON and only accepts escalation from you. Relaxing it is
+# Yusuf's call (/defcon N) or the alarm schedule. Check the level in event prompts.
+LEVEL="${1:?Usage: jarvis-defcon <1-4> [reason]}"
+shift
+REASON="$*"
+case "$LEVEL" in 1|2|3|4) ;; *) echo "Error: level must be 1-4 (escalate only)"; exit 1 ;; esac
+
+IPC_DIR="/workspace/ipc"
+mkdir -p "$IPC_DIR"
+FILENAME="defcon-$(date +%s%N).json"
+cat > "$IPC_DIR/$FILENAME" <<EOF
+{"type": "set_defcon", "level": $LEVEL, "reason": $(printf '%s' "$REASON" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}
+EOF
+echo "DEFCON escalation to $LEVEL queued (host applies it only if lower than the current level)"

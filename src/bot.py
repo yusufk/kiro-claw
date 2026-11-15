@@ -72,6 +72,21 @@ def create_bot() -> Application:
     async def cmd_chatid(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Chat ID: `{update.effective_chat.id}`", parse_mode="Markdown")
 
+    async def cmd_defcon(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        from .defcon import get_defcon, request_defcon
+        from .db import get_defcon_history
+        user = update.effective_user.id if update.effective_user else 0
+        owner = int(os.environ.get("OWNER_CHAT_ID", "0"))
+        if not owner or user != owner:
+            return
+        if not ctx.args:
+            hist = get_defcon_history(3)
+            last = "; ".join(f"{h['old_level']}->{h['new_level']} {h['actor']}" for h in hist)
+            await update.message.reply_text(f"DEFCON {get_defcon()}. Recent: {last or 'none'}")
+            return
+        ok, level, msg = request_defcon(ctx.args[0], "owner", "telegram /defcon")
+        await update.message.reply_text(msg if ok else f"No change: {msg}")
+
     async def cmd_tasks(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if not _is_allowed(update.effective_chat.id):
             return
@@ -179,6 +194,7 @@ def create_bot() -> Application:
     app.add_handler(CommandHandler("ping", cmd_ping))
     app.add_handler(CommandHandler("chatid", cmd_chatid))
     app.add_handler(CommandHandler("tasks", cmd_tasks))
+    app.add_handler(CommandHandler("defcon", cmd_defcon))
     app.add_handler(CommandHandler("cancel", cmd_cancel))
     app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.CAPTION) & ~filters.COMMAND, handle_message))
 

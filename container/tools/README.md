@@ -53,3 +53,9 @@ The host processes these JSON types from `/workspace/ipc/*.json`:
 | `photo` | `chat_id`, `path`, `caption` | Send photo to Telegram |
 | `schedule_task` | `chat_id`, `prompt`, `schedule_type`, `schedule_value` | Create task |
 | `cancel_task` | `task_id` | Cancel task |
+
+### jarvis-defcon
+Escalate DEFCON (lower number = more alert). The host only accepts escalation from the agent.
+```bash
+jarvis-defcon 2 "unfamiliar movement at the gate after midnight"
+```

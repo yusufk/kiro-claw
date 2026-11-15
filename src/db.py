@@ -65,6 +65,20 @@ def _init_schema(db: sqlite3.Connection):
         db.execute("ALTER TABLE events ADD COLUMN dup_count INTEGER DEFAULT 0")
     db.execute("CREATE INDEX IF NOT EXISTS idx_evt_srcid ON events(source, source_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_evt_fp ON events(fingerprint, timestamp)")
+    db.execute("""CREATE TABLE IF NOT EXISTS state (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at TEXT,
+        updated_by TEXT
+    )""")
+    db.execute("""CREATE TABLE IF NOT EXISTS defcon_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        old_level INTEGER,
+        new_level INTEGER NOT NULL,
+        actor TEXT NOT NULL,
+        reason TEXT
+    )""")
     db.execute("""CREATE TABLE IF NOT EXISTS tasks (
         id TEXT PRIMARY KEY,
         chat_id INTEGER NOT NULL,
@@ -192,6 +206,40 @@ def get_recent_messages(chat_id: int, limit: int = 50) -> list[dict]:
             "SELECT * FROM messages WHERE chat_id=? ORDER BY timestamp DESC LIMIT ?", (chat_id, limit)
         ).fetchall()
         return [dict(r) for r in reversed(rows)]
+
+
+# --- Key/value state (host-owned, e.g. DEFCON) ---
+
+def get_state(key: str) -> str | None:
+    with _db() as db:
+        row = db.execute("SELECT value FROM state WHERE key=?", (key,)).fetchone()
+        return row[0] if row else None
+
+
+def set_state(key: str, value: str, updated_by: str = ""):
+    with _db() as db:
+        db.execute(
+            "INSERT INTO state (key, value, updated_at, updated_by) VALUES (?,?,?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value, "
+            "updated_at=excluded.updated_at, updated_by=excluded.updated_by",
+            (key, value, datetime.now(timezone.utc).isoformat(), updated_by),
+        )
+        db.commit()
+
+
+def add_defcon_history(old_level, new_level: int, actor: str, reason: str = ""):
+    with _db() as db:
+        db.execute(
+            "INSERT INTO defcon_history (timestamp, old_level, new_level, actor, reason) VALUES (?,?,?,?,?)",
+            (datetime.now(timezone.utc).isoformat(), old_level, new_level, actor, reason),
+        )
+        db.commit()
+
+
+def get_defcon_history(limit: int = 10) -> list[dict]:
+    with _db() as db:
+        rows = db.execute("SELECT * FROM defcon_history ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rows]
 
 
 # --- Events ---
